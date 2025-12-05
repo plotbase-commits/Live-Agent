@@ -85,7 +85,8 @@ COMMUNICATION_TYPES = {'3', '4', '5', '7'}
 │                                                                             │
 │  1. Status tiketu je N, C, A, R alebo W?                                    │
 │     │                                                                       │
-│     ├── NIE → PRESKOČIŤ tiket                                               │
+│     ├── NIE (I, T, P, X, B) → PRESKOČIŤ tiket ❌                             │
+│     │   (Init, Chatting, Calling, Deleted, Spam - nesťahujeme)              │
 │     │                                                                       │
 │     └── ÁNO → Pokračuj na krok 2                                            │
 │                                                                             │
