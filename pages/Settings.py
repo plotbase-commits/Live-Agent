@@ -9,7 +9,6 @@ from src.job_status import get_status, get_logs, clear_logs, add_log
 from src.scheduler import SchedulerService, display_scheduler_status
 
 st.set_page_config(page_title="Admin Settings", layout="wide")
-st.title("⚙️ Admin Settings")
 
 # --- Helper Functions ---
 def run_in_background(func, *args):

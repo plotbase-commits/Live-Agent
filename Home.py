@@ -222,7 +222,6 @@ def create_agent_card(agent_name, stats):
                 st.write("No summary available yet.")
 
 # --- Main Dashboard ---
-st.title("📊 QA Dashboard")
 
 # Last sync info
 col_title, col_sync = st.columns([3, 1])
