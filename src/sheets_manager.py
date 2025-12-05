@@ -288,8 +288,8 @@ class SheetSyncManager:
             if not tickets: break
             
             for t in tickets:
-                # Filter logic - only email tickets with specific statuses
-                if t.get('status') in ['A', 'R', 'W'] and t.get('channel_type') == 'E':
+                # Filter logic
+                if t.get('status') in ['A', 'R', 'W']:
                     all_tickets.append(t)
             
             page += 1

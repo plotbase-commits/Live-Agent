@@ -6,9 +6,9 @@
     "updated_at": "13:11:06"
   },
   "ETL": {
-    "status": "completed",
-    "progress": 100,
-    "message": "Done! 17 new tickets.",
-    "updated_at": "15:29:24"
+    "status": "running",
+    "progress": 30,
+    "message": "Page 1/5...",
+    "updated_at": "15:49:29"
   }
 }

@@ -31,6 +31,14 @@ CUSTOMER_TYPES = ['3', '5', '7']
 # Typy agenta (outgoing)
 AGENT_TYPES = ['4']
 
+# Statusy tiketov
+# Statusy kde VYŽADUJEME odpoveď agenta (ticket bol spracovaný agentom)
+REQUIRES_AGENT_RESPONSE = ['A']  # Answered = agent odpovedal (definícia)
+# Statusy kde STAČÍ správa od zákazníka (agent nemusel odpovedať)
+CUSTOMER_ONLY_OK = ['N', 'C', 'W', 'R']  # New, Open, Postponed, Resolved
+# Všetky povolené statusy
+ALLOWED_STATUSES = REQUIRES_AGENT_RESPONSE + CUSTOMER_ONLY_OK
+
 # --- Helper Functions ---
 
 def get_liveagent_tickets(api_key, page=1, per_page=20):
@@ -67,12 +75,31 @@ def filter_communication_groups(message_groups):
         return []
     return [g for g in message_groups if g.get('type') in COMMUNICATION_TYPES]
 
-def has_real_communication(message_groups):
-    """Checks if ticket has both customer message AND agent response."""
+def should_import_ticket(message_groups, status_code):
+    """
+    Rozhoduje či tiket importovať na základe statusu a komunikácie.
+    
+    Logika:
+    - Pre statusy N, C, W: stačí správa od zákazníka (agent nemusel ešte odpovedať)
+    - Pre statusy A, R: vyžadujeme zákazníka AJ agenta (obojsmerná komunikácia)
+    """
     group_types = [g.get('type') for g in message_groups]
     has_customer = any(t in CUSTOMER_TYPES for t in group_types)
     has_agent = any(t in AGENT_TYPES for t in group_types)
-    return has_customer and has_agent
+    
+    # Ak nie je žiadna správa od zákazníka, preskočiť (len systémové notifikácie)
+    if not has_customer:
+        return False
+    
+    # Pre statusy kde stačí zákazník
+    if status_code in CUSTOMER_ONLY_OK:
+        return True  # Stačí že zákazník napísal
+    
+    # Pre statusy kde vyžadujeme aj agenta (A, R)
+    if status_code in REQUIRES_AGENT_RESPONSE:
+        return has_agent  # Musí mať aj odpoveď agenta
+    
+    return False
 
 def process_transcript(message_groups):
     """Processes message groups into a structured transcript."""
@@ -221,9 +248,9 @@ def sync_data(api_key, sheet_name, creds_file, progress_bar, status_text, url_ba
             # Rate limiting
             time.sleep(0.1)
             
-            # Filter by status: Answered (A), Resolved (R), Postponed (W)
+            # Filter by status: N (New), C (Open), A (Answered), R (Resolved), W (Postponed)
             status_code = ticket.get('status')
-            if status_code not in ['A', 'R', 'W']:
+            if status_code not in ALLOWED_STATUSES:
                 continue
 
             # Fetch messages
@@ -233,9 +260,9 @@ def sync_data(api_key, sheet_name, creds_file, progress_bar, status_text, url_ba
             # Filter to only communication groups (skip system notifications)
             communication_groups = filter_communication_groups(messages)
             
-            # Skip tickets without real communication (customer + agent)
-            if not has_real_communication(communication_groups):
-                status_text.text(f"Skipping ticket {ticket_id} (no real communication)...")
+            # Check if ticket should be imported based on status and communication
+            if not should_import_ticket(communication_groups, status_code):
+                status_text.text(f"Skipping ticket {ticket_id} (no relevant communication)...")
                 continue
             
             transcript = process_transcript(communication_groups)
