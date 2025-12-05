@@ -276,9 +276,10 @@ with tab_config:
     
     recipients = st.text_area("Recipients (comma separated)", value=", ".join(email_cfg.get("recipients", [])), key="email_recipients")
     subject = st.text_input("Subject Template", value=email_cfg.get("subject_template", ""), key="email_subject")
-    body = st.text_area("Body Template", value=email_cfg.get("body_template", ""), height=100, key="email_body")
+    body = st.text_area("Body Template", value=email_cfg.get("body_template", ""), height=150, key="email_body")
     
-    st.caption("Variables: `{ticket_id}`, `{agent_name}`, `{alert_reason}`, `{ticket_url}`")
+    st.caption("**Variables:** `{ticket_id}`, `{agent_name}`, `{alert_reason}`, `{ticket_url}`")
+    st.caption("**Formátovanie:** `**bold**` → **bold**, `*italic*` → *italic*")
     
     if st.button("💾 Save Email Config", key="btn_save_email"):
         recipient_list = [r.strip() for r in recipients.replace('\n', ',').split(',') if r.strip()]
