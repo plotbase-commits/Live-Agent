@@ -6,44 +6,15 @@ description: Logika sťahovania tiketov z LiveAgent do Google Sheets
 
 ## Prehľad
 
-Aplikácia sťahuje tikety z LiveAgent API a ukladá ich do Google Sheets. Používa inteligentnú logiku filtrovania založenú na **statuse tiketu** a **type komunikácie**.
+Aplikácia sťahuje tikety z LiveAgent API a ukladá ich do Google Sheets. Používa inteligentnú logiku filtrovania založenú na **type skupiny správ (group type)** a **doméne odosielateľa**.
 
 ---
 
-## 1. Povolené statusy tiketov
-
-| Kód | Názov | Sťahujeme? | Vyžaduje odpoveď agenta? |
-|-----|-------|------------|--------------------------|
-| `N` | New | ✅ ÁNO | ❌ NIE (agent ešte neotvoril) |
-| `C` | Open | ✅ ÁNO | ❌ NIE (agent pracuje) |
-| `A` | Answered | ✅ ÁNO | ✅ ÁNO (agent už odpovedal - definícia) |
-| `R` | Resolved | ✅ ÁNO | ❌ NIE (môže byť auto-resolved) |
-| `W` | Postponed | ✅ ÁNO | ❌ NIE (odložené) |
-| `I` | Init | ❌ NIE | - |
-| `T` | Chatting | ❌ NIE | - |
-| `P` | Calling | ❌ NIE | - |
-| `X` | Deleted | ❌ NIE | - |
-| `B` | Spam | ❌ NIE | - |
-
-**Kód v `app.py`:**
-```python
-# Statusy kde VYŽADUJEME odpoveď agenta
-REQUIRES_AGENT_RESPONSE = ['A']  # Answered = agent odpovedal (definícia)
-
-# Statusy kde STAČÍ správa od zákazníka (agent nemusel odpovedať)
-CUSTOMER_ONLY_OK = ['N', 'C', 'W', 'R']  # New, Open, Postponed, Resolved
-
-# Všetky povolené statusy
-ALLOWED_STATUSES = REQUIRES_AGENT_RESPONSE + CUSTOMER_ONLY_OK
-```
-
----
-
-## 2. Typy správ (Message Group Types)
+## 1. Typy správ (Message Group Types) - PRIMÁRNY FILTER
 
 LiveAgent API vracia správy v "skupinách" (groups). Každá skupina má `type`.
 
-### 2.1 Komunikačné typy (zahŕňame do transkriptu)
+### 1.1 Komunikačné typy (zahŕňame do transkriptu) ✅
 
 | Type | Názov | Popis |
 |------|-------|-------|
@@ -52,7 +23,7 @@ LiveAgent API vracia správy v "skupinách" (groups). Každá skupina má `type`
 | `5` | Offline | Zákazník cez kontaktný formulár |
 | `7` | Incoming Email (odpoveď) | Zákazník odpovedal na email |
 
-### 2.2 Systémové typy (ignorujeme)
+### 1.2 Systémové typy (IGNORUJEME) ❌
 
 | Type | Názov | Popis |
 |------|-------|-------|
@@ -61,79 +32,92 @@ LiveAgent API vracia správy v "skupinách" (groups). Každá skupina má `type`
 | `G` | Tag | Pridanie značky |
 | `R` | Resolve | Vyriešenie tiketu |
 
-### 2.3 Kategorizácia v kóde
+### 1.3 Kategorizácia v kóde (`src/utils.py`)
 
 ```python
-# Typy zákazníka (incoming)
-CUSTOMER_TYPES = ['3', '5', '7']
-
-# Typy agenta (outgoing)
-AGENT_TYPES = ['4']
-
-# Všetky komunikačné typy
+# Komunikačné typy (human interaction)
 COMMUNICATION_TYPES = {'3', '4', '5', '7'}
+
+# Systémové typy sú AUTOMATICKY PRESKOČENÉ
+# ak group_type not in COMMUNICATION_TYPES -> skip
 ```
 
 ---
 
-## 3. Rozhodovacia logika
+## 2. Filtrovanie vlastných domén - SEKUNDÁRNY FILTER
+
+Tikety s automatickými notifikáciami z vlastného e-shopu (napr. "Objednávka bola expedovaná") sú **PRESKOČENÉ**.
+
+```python
+# Domény na ignorovanie
+IGNORED_DOMAINS = ['plotbase.sk', 'plotbase.cz']
+
+# Ak userid alebo author_name obsahuje tieto domény -> skip
+```
+
+---
+
+## 3. Rozhodovacia logika (is_human_interaction)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         ROZHODOVACÍ STROM                                   │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  1. Status tiketu je N, C, A, R alebo W?                                    │
+│  1. Je group.type v {3, 4, 5, 7}?                                           │
 │     │                                                                       │
-│     ├── NIE (I, T, P, X, B) → PRESKOČIŤ tiket ❌                             │
-│     │   (Init, Chatting, Calling, Deleted, Spam - nesťahujeme)              │
+│     ├── NIE (I, T, G, R, ...) → PRESKOČIŤ skupinu ❌                         │
+│     │   (Systémové notifikácie - SLA, transfer, tagy, resolve)              │
 │     │                                                                       │
 │     └── ÁNO → Pokračuj na krok 2                                            │
 │                                                                             │
-│  2. Tiket má správu od zákazníka (type 3, 5, alebo 7)?                      │
+│  2. Je odosielateľ z vlastnej domény (plotbase.sk/cz)?                      │
 │     │                                                                       │
-│     ├── NIE → PRESKOČIŤ tiket (len systémové notifikácie)                   │
+│     ├── ÁNO → PRESKOČIŤ správu ❌                                            │
+│     │   (Automatická notifikácia z e-shopu)                                 │
 │     │                                                                       │
-│     └── ÁNO → Pokračuj na krok 3                                            │
+│     └── NIE → Pokračuj na krok 3                                            │
 │                                                                             │
-│  3. Aký je status tiketu?                                                   │
+│  3. Má správa neprázdny obsah?                                              │
 │     │                                                                       │
-│     ├── N, C, W, R (nové/otvorené/odložené/vyriešené):                      │
-│     │   └── IMPORTOVAŤ ✅ (stačí správa od zákazníka)                       │
+│     ├── NIE → PRESKOČIŤ správu ❌                                            │
 │     │                                                                       │
-│     └── A (answered):                                                       │
-│         │                                                                   │
-│         ├── Má odpoveď agenta (type 4)?                                     │
-│         │   └── ÁNO → IMPORTOVAŤ ✅                                         │
-│         │                                                                   │
-│         └── NIE → PRESKOČIŤ ❌ (status "Answered" ale chýba                 │
-│                                  odpoveď = nekonzistentné dáta)             │
+│     └── ÁNO → IMPORTOVAŤ TIKET ✅                                            │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Kód v `app.py`:**
+**Kód v `src/utils.py`:**
 ```python
-def should_import_ticket(message_groups, status_code):
+def is_human_interaction(message_groups, agents_map):
     """
-    Rozhoduje či tiket importovať na základe statusu a komunikácie.
+    Determines if the ticket contains human communication.
+    Uses MESSAGE GROUP TYPE as the primary filter.
     """
-    group_types = [g.get('type') for g in message_groups]
-    has_customer = any(t in CUSTOMER_TYPES for t in group_types)
-    has_agent = any(t in AGENT_TYPES for t in group_types)
-    
-    # Ak nie je žiadna správa od zákazníka, preskočiť
-    if not has_customer:
-        return False
-    
-    # Pre statusy N, C, W, R: stačí zákazník
-    if status_code in CUSTOMER_ONLY_OK:
-        return True
-    
-    # Pre status A: vyžadujeme aj agenta
-    if status_code in REQUIRES_AGENT_RESPONSE:
-        return has_agent
-    
+    COMMUNICATION_TYPES = {'3', '4', '5', '7'}
+    IGNORED_DOMAINS = ['plotbase.sk', 'plotbase.cz']
+
+    for group in message_groups:
+        # PRIMARY FILTER: Check group type
+        group_type = str(group.get('type', ''))
+        if group_type not in COMMUNICATION_TYPES:
+            continue
+        
+        # SECONDARY FILTER: Check for own-domain notifications
+        for msg in group.get('messages', []):
+            userid = str(msg.get('userid', ''))
+            author_name = msg.get('user_full_name', '') or ''
+            
+            # Skip own domain emails
+            if any(domain in userid.lower() for domain in IGNORED_DOMAINS):
+                continue
+            if any(domain in author_name.lower() for domain in IGNORED_DOMAINS):
+                continue
+            
+            # Check for actual content
+            if msg.get('message', '').strip():
+                return True
+
     return False
 ```
 
@@ -141,100 +125,68 @@ def should_import_ticket(message_groups, status_code):
 
 ## 4. Príklady
 
-### Príklad A: Tiket sa IMPORTUJE ✅ (agent odpovedal)
+### Príklad A: Tiket sa IMPORTUJE ✅ (zákazník + agent)
 ```
 Tiket ID: 3jor4368
-Status: A (Answered)
 Skupiny správ:
   - Type 7: Zákazník napísal email
   - Type 4: Agent odpovedal
 
-→ Status A vyžaduje agenta ✅
-→ Má zákazníka (type 7) ✅
-→ Má agenta (type 4) ✅
+→ Type 7 je v COMMUNICATION_TYPES ✅
+→ Type 4 je v COMMUNICATION_TYPES ✅
 → IMPORTUJE SA
 ```
 
-### Príklad B: Tiket sa IMPORTUJE ✅ (nový tiket bez odpovede)
+### Príklad B: Tiket sa IMPORTUJE ✅ (len zákazník)
 ```
 Tiket ID: reklamacia123
-Status: N (New)
 Skupiny správ:
   - Type 3: Zákazník napísal reklamáciu
 
-→ Status N nevyžaduje agenta ✅
-→ Má zákazníka (type 3) ✅
-→ IMPORTUJE SA (zákazník napísal, agent ešte neodpovedal)
+→ Type 3 je v COMMUNICATION_TYPES ✅
+→ IMPORTUJE SA
 ```
 
-### Príklad C: Tiket sa IMPORTUJE ✅ (vyriešené bez odpovede)
+### Príklad C: Tiket sa NEIMPORTUJE ❌ (len systémové)
 ```
-Tiket ID: autoclose789
-Status: R (Resolved)
-Skupiny správ:
-  - Type 3: Zákazník napísal otázku
-  - Type R: Automaticky vyriešené pravidlom
-
-→ Status R nevyžaduje agenta ✅
-→ Má zákazníka (type 3) ✅
-→ IMPORTUJE SA (vyriešené, aj keď agent neodpovedal)
-```
-
-### Príklad D: Tiket sa NEIMPORTUJE ❌ (len systémové notifikácie)
-```
-Tiket ID: 8u6xyvkw
-Status: R (Resolved)
+Tiket ID: f7jrt2t0
 Skupiny správ:
   - Type I: SLA notifikácia
-  - Type T: Transfer
-  - Type R: Auto-resolved
+  - Type T: Transfer (viackrát)
+  - Type G: Pridanie značiek
 
-→ Nemá zákazníka (type 3/5/7) ❌
-→ NEIMPORTUJE SA (len systémové notifikácie, žiadna ľudská komunikácia)
+→ Žiadny type nie je v COMMUNICATION_TYPES ❌
+→ NEIMPORTUJE SA (len automatické notifikácie)
 ```
 
-### Príklad E: Tiket sa NEIMPORTUJE ❌ (status A bez odpovede)
+### Príklad D: Tiket sa NEIMPORTUJE ❌ (vlastná doména)
 ```
-Tiket ID: inconsistent456
-Status: A (Answered)
+Tiket ID: shop-notification
 Skupiny správ:
-  - Type 7: Zákazník napísal
-  - Type I: Interná poznámka
+  - Type 3: Email od plotbase@plotbase.sk
 
-→ Status A vyžaduje agenta
-→ Má zákazníka (type 7) ✅
-→ Nemá agenta (type 4) ❌
-→ NEIMPORTUJE SA (nekonzistentné - status hovorí Answered ale type 4 chýba)
+→ Type 3 je v COMMUNICATION_TYPES ✅
+→ ALE autor je z IGNORED_DOMAINS ❌
+→ NEIMPORTUJE SA (automatická notifikácia z e-shopu)
 ```
 
 ---
 
-## 5. Prečo táto logika?
+## 5. Bug Fix History
 
-| Status | Logika | Dôvod |
-|--------|--------|-------|
-| **A** | Vyžaduje agenta | "Answered" = agent odpovedal (definícia statusu) |
-| **N** | Stačí zákazník | Nový tiket, agent ho ešte nevidel |
-| **C** | Stačí zákazník | Agent pracuje, ešte neodpovedal |
-| **W** | Stačí zákazník | Odložené, možno čaká na info |
-| **R** | Stačí zákazník | Môže byť auto-resolved bez odpovede |
+### 2025-12-05: Oprava filtrovania systémových notifikácií
 
----
+**Problém:** Tiket `f7jrt2t0` bol nesprávne importovaný, hoci obsahoval len systémové notifikácie (SLA, transfer, tagy).
 
-## 6. Čo sa IMPORTUJE vs NEIMPORTUJE
+**Príčina:** Pôvodná funkcia `is_human_interaction()` kontrolovala len **obsah správy** a **userid**, ale NIE **group type**. Systémové správy s type=I, T, G mali `userid: system00`, ale funkcia to nesprávne vyhodnotila.
 
-| Scenár | Importuje sa? | Dôvod |
-|--------|---------------|-------|
-| Zákazník napíše reklamáciu, agent neodpovie (status N) | ✅ ÁNO | Chceme zachytiť čakajúce tikety |
-| Zákazník napíše, agent odloží (status W) | ✅ ÁNO | Odložené tikety sú relevantné |
-| Zákazník napíše, auto-resolved (status R) | ✅ ÁNO | Môže byť užitočné pre analýzu |
-| Agent odpovie zákazníkovi (status A) | ✅ ÁNO | Štandardná komunikácia |
-| Automatická notifikácia (expedícia) bez zákazníka | ❌ NIE | Nie je ľudská komunikácia |
-| Status A ale chýba type 4 | ❌ NIE | Nekonzistentné dáta |
+**Riešenie:** Nová logika používa **group.type** ako primárny filter:
+- Len typy 3, 4, 5, 7 sú považované za komunikáciu
+- Všetky ostatné typy (I, T, G, R, ...) sú automaticky preskočené
 
 ---
 
-## 7. API Endpoints
+## 6. API Endpoints
 
 ```
 GET /api/v3/tickets
@@ -243,17 +195,17 @@ GET /api/v3/tickets
 
 GET /api/v3/tickets/{id}/messages
   - Vracia skupiny správ pre konkrétny tiket
+  - Každá skupina má "type" pole (3, 4, 5, 7, I, T, G, R, ...)
 ```
 
 ---
 
-## 8. Súvisiace súbory
+## 7. Súvisiace súbory
 
-- `app.py` - Hlavná sync logika (standalone verzia)
-- `Home.py` - Streamlit UI (modulárna verzia)
-- `src/liveagent.py` - LiveAgent API client
-- `src/sheets.py` - Google Sheets integrácia
+- `src/utils.py` - Funkcia `is_human_interaction()` (hlavná logika filtrovania)
+- `src/backend.py` - `ETLService.run_etl_cycle()` (volá is_human_interaction)
+- `pages/Settings.py` - UI pre manuálne spustenie ETL
 
 ---
 
-*Posledná aktualizácia: 2025-12-05*
+*Posledná aktualizácia: 2025-12-05 (fix: group type filtering)*

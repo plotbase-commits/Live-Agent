@@ -222,22 +222,55 @@ def process_transcript(message_groups, agents_map, users_map):
 
 def is_human_interaction(message_groups, agents_map):
     """
-    Determines if the ticket contains at least one message from a human (Agent or Customer).
-    Filters out system logs, automation rules, own domain notifications, and empty messages.
+    Determines if the ticket contains human communication (Agent or Customer).
+    
+    Uses MESSAGE GROUP TYPE as the primary filter:
+    - Type 3: Incoming Email (new ticket from customer)
+    - Type 4: Outgoing Email (agent reply)
+    - Type 5: Offline message (contact form)
+    - Type 7: Incoming Email reply (customer reply)
+    
+    System types are IGNORED:
+    - Type I: Internal notifications (SLA, fields)
+    - Type T: Transfer/assignment
+    - Type G: Tag operations
+    - Type R: Resolve operations
+    
+    Additionally filters out own-domain notifications (e.g. plotbase@plotbase.sk).
     """
     if not message_groups or not isinstance(message_groups, list):
         return False
 
-    # Configurable: Domains to ignore (own shop notifications)
-    IGNORED_DOMAINS = ['plotbase.sk', 'plotbase.cz']
+    # Communication types (human interaction)
+    COMMUNICATION_TYPES = {'3', '4', '5', '7'}
     
-    # Configurable: System author patterns
-    SYSTEM_AUTHORS = ['System', 'LiveAgent', 'Automation rule']
+    # Domains to ignore (own shop automated notifications)
+    IGNORED_DOMAINS = ['plotbase.sk', 'plotbase.cz']
 
     for group in message_groups:
+        # PRIMARY FILTER: Check group type
+        group_type = str(group.get('type', ''))
+        
+        # Skip non-communication types (I, T, G, R, etc.)
+        if group_type not in COMMUNICATION_TYPES:
+            continue
+        
+        # SECONDARY FILTER: Check for own-domain notifications
+        # These are automated emails FROM our own shop (e.g. order status updates)
+        owner_email = ''
         if 'messages' in group and isinstance(group['messages'], list):
             for msg in group['messages']:
-                # 1. Check content presence (text only)
+                # Check userid for own domain
+                userid = str(msg.get('userid', ''))
+                author_name = msg.get('user_full_name', '') or msg.get('name', '')
+                
+                # Skip own domain emails (automated notifications from our shop)
+                if any(domain in userid.lower() for domain in IGNORED_DOMAINS):
+                    continue
+                if any(domain in author_name.lower() for domain in IGNORED_DOMAINS):
+                    continue
+                    
+                # Check for actual content
                 body = msg.get('message', '')
                 if not body:
                     continue
@@ -250,32 +283,8 @@ def is_human_interaction(message_groups, agents_map):
                 except:
                     if not body.strip():
                         continue
-
-                # 2. Check Author
-                userid = str(msg.get('userid', ''))
-                author_name = msg.get('user_full_name', '') or msg.get('name', '')
                 
-                # Skip if userid starts with 'system'
-                if userid.lower().startswith('system'):
-                    continue
-                
-                # Skip if author name starts with 'User system'
-                if author_name.lower().startswith('user system'):
-                    continue
-                
-                # Skip known system authors
-                if author_name in SYSTEM_AUTHORS:
-                    continue
-                
-                # Skip own domain emails (automated notifications)
-                if any(domain in author_name.lower() for domain in IGNORED_DOMAINS):
-                    continue
-                
-                # Skip empty author
-                if not userid and not author_name:
-                    continue
-                
-                # If we reach here, it's a human (Agent or Customer)
+                # If we reach here, it's valid human communication
                 return True
 
     return False

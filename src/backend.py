@@ -13,6 +13,25 @@ class ETLService:
     def __init__(self, api_key, sheet_manager):
         self.api_key = api_key
         self.sheet_manager = sheet_manager
+    
+    def _extract_agent_from_messages(self, messages, agents_map):
+        """
+        Extracts agent name from messages by looking for type=4 (outgoing email).
+        Uses userid + agents_map lookup since user_full_name is often None.
+        Returns: agent name or 'Nepriradený' if no agent found.
+        """
+        for group in messages:
+            if group.get('type') == '4':  # Outgoing email = agent response
+                userid = group.get('userid')
+                if userid and userid in agents_map:
+                    return agents_map[userid]
+                # Fallback to inner messages
+                if 'messages' in group:
+                    for msg in group['messages']:
+                        userid = msg.get('userid')
+                        if userid and userid in agents_map:
+                            return agents_map[userid]
+        return 'Nepriradený'
 
     def run_etl_cycle(self):
         """
@@ -79,13 +98,10 @@ class ETLService:
                     transcript = process_transcript(messages, agents_map, users_map)
                     
                     # Prepare Row
-                    agent_name = ticket.get('agent_name', 'Unknown')
-                    if not agent_name or agent_name == 'Unknown':
-                        agent_id = ticket.get('agent_id')
-                        if agent_id and str(agent_id) in agents_map:
-                            agent_name = agents_map[str(agent_id)]
+                    # Extract agent from messages (more reliable than ticket.agent_id)
+                    agent_name = self._extract_agent_from_messages(messages, agents_map)
                     
-                    ticket_link = f"https://plotbase.ladesk.com/agent/#/Ticket;{ticket_id}"
+                    ticket_link = f"https://plotbase.ladesk.com/agent/#Conversation;id={ticket_id}"
                     
                     row = [
                         ticket_id,
@@ -225,10 +241,14 @@ class AnalysisService:
                     add_log(f"Analysis: Ticket {ticket_id} - Score: {qa_score}, Critical: {is_critical}")
                     
                     if is_critical == "TRUE":
+                        # Get agent name from row (column index 2 is Agent)
+                        agent_for_alert = row[2] if len(row) > 2 and row[2] else "Unknown"
                         alerts_data.append({
                             "ticket_id": ticket_id,
-                            "agent_name": row[2] if len(row) > 2 else "Unknown",
-                            "reason": alert_reason
+                            "agent_name": agent_for_alert,
+                            "reason": alert_reason,
+                            "alert_reason": alert_reason,  # For email template compatibility
+                            "ticket_url": f"https://plotbase.ladesk.com/agent/#Conversation;id={ticket_id}"
                         })
             
             # Batch Update Sheet

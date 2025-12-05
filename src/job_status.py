@@ -77,48 +77,52 @@ def clear_status(job_name):
             json.dump(all_status, f, indent=2)
 
 def display_status_sidebar():
-    """Displays job status in Streamlit sidebar with auto-refresh."""
+    """Legacy function - now just a passthrough."""
+    pass  # Status is now in main content
+
+def display_job_status():
+    """Displays job status in main content with auto-refresh."""
     import streamlit as st
     
-    statuses = get_status()
-    
-    if not statuses:
-        return
-    
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🔄 Background Jobs")
-    
-    # Check if any job is running
-    any_running = any(info.get("status") == "running" for info in statuses.values())
-    
-    for job_name, info in statuses.items():
-        status = info.get("status", "idle")
-        progress = info.get("progress", 0)
-        message = info.get("message", "")
-        updated = info.get("updated_at", "")
+    @st.fragment(run_every=5)  # Auto-refresh every 5 seconds
+    def _status_fragment():
+        statuses = get_status()
         
-        if status == "running":
-            st.sidebar.markdown(f"**{job_name}** 🟢 Running")
-            st.sidebar.progress(progress / 100)
-            st.sidebar.caption(f"{message} ({updated})")
-        elif status == "completed":
-            st.sidebar.markdown(f"**{job_name}** ✅ Done")
-            st.sidebar.caption(f"{message}")
-        elif status == "error":
-            st.sidebar.markdown(f"**{job_name}** ❌ Error")
-            st.sidebar.caption(f"{message}")
-    
-    # Show refresh button and auto-refresh hint
-    if any_running:
-        st.sidebar.caption("⏳ Job is running...")
-        if st.sidebar.button("🔄 Refresh Status", key="refresh_status"):
-            st.rerun()
+        if not statuses:
+            st.info("🔄 No background jobs running")
+            return
         
-        # Auto-refresh using meta tag (works in Streamlit)
-        st.markdown(
-            '<meta http-equiv="refresh" content="5">',
-            unsafe_allow_html=True
-        )
+        # Check if any job is running
+        any_running = any(info.get("status") == "running" for info in statuses.values())
+        
+        # Create columns for better layout
+        cols = st.columns(len(statuses))
+        
+        for i, (job_name, info) in enumerate(statuses.items()):
+            with cols[i]:
+                status = info.get("status", "idle")
+                progress = info.get("progress", 0)
+                message = info.get("message", "")
+                updated = info.get("updated_at", "")
+                
+                if status == "running":
+                    st.markdown(f"### {job_name} 🟢")
+                    st.progress(progress / 100)
+                    st.caption(f"{message}")
+                    st.caption(f"Updated: {updated}")
+                elif status == "completed":
+                    st.markdown(f"### {job_name} ✅")
+                    st.success(f"{message}")
+                elif status == "error":
+                    st.markdown(f"### {job_name} ❌")
+                    st.error(f"{message}")
+        
+        if any_running:
+            st.caption("⏳ Auto-refreshing every 5 seconds...")
+    
+    # Render the fragment
+    st.subheader("🔄 Background Jobs")
+    _status_fragment()
 
 def display_log_window():
     """Displays scrollable log window."""

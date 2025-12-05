@@ -29,7 +29,8 @@ class AIService:
 
         # Construct the master prompt
         master_prompt = f"""
-        You are a QA Specialist analyzing a customer support ticket.
+        Ste QA špecialista analyzujúci tiket zákazníckej podpory.
+        DÔLEŽITÉ: Všetky textové odpovede (verbal_summary, reason) MUSIA byť v SLOVENČINE.
         
         TRANSCRIPT:
         {transcript}
@@ -45,10 +46,10 @@ class AIService:
         {{
           "alert_data": {{
             "is_critical": boolean,
-            "reason": "String or null"
+            "reason": "String v slovenčine alebo null"
           }},
           "qa_data": {{
-            "verbal_summary": "String (3 sentences)",
+            "verbal_summary": "String v slovenčine (3 vety)",
             "criteria": {{
               "empathy": int (0-100),
               "expertise": int (0-100),

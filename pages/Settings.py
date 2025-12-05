@@ -5,7 +5,7 @@ import threading
 from src.config import VAS_API_KLUC, LIVEAGENT_API_URL
 from src.sheets_manager import SheetSyncManager
 from src.backend import ETLService, AnalysisService, ArchivingService
-from src.job_status import display_status_sidebar, display_log_window
+from src.job_status import display_status_sidebar, display_log_window, display_job_status
 from src.scheduler import SchedulerService, display_scheduler_status
 
 st.set_page_config(page_title="Admin Settings", layout="wide")
@@ -22,7 +22,8 @@ def run_in_background(func, *args):
     thread.start()
     return thread
 
-# --- Layout Containers (Order: Manual, Logs, Scheduler, Prompts, Email, Config) ---
+# --- Layout Containers (Order: Status, Manual, Logs, Scheduler, Prompts, Email, Config) ---
+cont_status = st.container()
 cont_manual = st.container()
 cont_logs = st.container()
 cont_scheduler = st.container()
@@ -118,7 +119,14 @@ with cont_email:
             save_email_config(recipients_input, subject_input, body_input)
 
 # ==========================================
-# 4. Manual Controls (Runs fourth, Renders 1st)
+# 4. Job Status (Auto-refresh every 5s)
+# ==========================================
+with cont_status:
+    display_job_status()
+    st.markdown("---")
+
+# ==========================================
+# 5. Manual Controls (Runs fourth, Renders 2nd)
 # ==========================================
 with cont_manual:
     st.header("Manual Controls")
