@@ -2,10 +2,11 @@ import streamlit as st
 import os
 import json
 import threading
+import time
 from src.config import VAS_API_KLUC
 from src.sheets_manager import SheetSyncManager
 from src.backend import ETLService, AnalysisService, ArchivingService
-from src.job_status import get_status, get_logs, clear_logs, add_log, display_log_window
+from src.job_status import get_status, get_logs, clear_logs, add_log
 from src.scheduler import SchedulerService, display_scheduler_status
 
 st.set_page_config(page_title="Admin Settings", layout="wide")
@@ -24,13 +25,10 @@ sheet_name = "LiveAgent Tickets"
 api_key = VAS_API_KLUC
 
 # ==========================================
-# JOB STATUS BAR (Always visible at top)
+# JOB STATUS BAR (Auto-refresh with fragment)
 # ==========================================
-st.header("📊 Job Status")
-
-status_col1, status_col2 = st.columns([3, 1])
-
-with status_col1:
+@st.fragment(run_every=2)
+def display_job_status():
     statuses = get_status()
     if statuses:
         for job_name, info in statuses.items():
@@ -56,24 +54,21 @@ with status_col1:
     else:
         st.info("Žiadne aktívne joby")
 
-with status_col2:
-    if st.button("🔄 Refresh"):
-        st.rerun()
-
+st.header("📊 Job Status")
+display_job_status()
 st.markdown("---")
 
 # ==========================================
-# TABS
+# TABS (3 tabs now - logs moved to manual)
 # ==========================================
-tab_manual, tab_scheduler, tab_logs, tab_config = st.tabs([
+tab_manual, tab_scheduler, tab_config = st.tabs([
     "🎮 Manual Controls", 
     "⏰ Scheduler", 
-    "📋 Logs",
     "⚙️ Configuration"
 ])
 
 # ==========================================
-# TAB 1: MANUAL CONTROLS
+# TAB 1: MANUAL CONTROLS + LOGS
 # ==========================================
 with tab_manual:
     col_etl, col_ai = st.columns(2)
@@ -151,6 +146,50 @@ with tab_manual:
                     except Exception as e:
                         st.error(f"Error: {e}")
 
+    st.markdown("---")
+    
+    # JOB LOGS (auto-refresh, newest first)
+    @st.fragment(run_every=2)
+    def display_logs_realtime():
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.subheader("📋 Job Logs")
+        with col2:
+            if st.button("🗑️ Clear", key="btn_clear_logs"):
+                clear_logs()
+                st.rerun()
+        
+        logs = get_logs()
+        
+        # Reverse logs - newest first
+        if logs and logs != "No logs yet.":
+            log_lines = logs.strip().split('\n')
+            log_lines.reverse()
+            logs_reversed = '\n'.join(log_lines)
+        else:
+            logs_reversed = "No logs yet."
+        
+        # Styled log container
+        st.markdown("""
+        <style>
+        .log-container {
+            background-color: #1e1e2e;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            padding: 10px;
+            border-radius: 8px;
+            height: 250px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        st.markdown(f'<div class="log-container">{logs_reversed}</div>', unsafe_allow_html=True)
+    
+    display_logs_realtime()
+
 # ==========================================
 # TAB 2: SCHEDULER
 # ==========================================
@@ -199,13 +238,7 @@ with tab_scheduler:
             st.rerun()
 
 # ==========================================
-# TAB 3: LOGS (original style)
-# ==========================================
-with tab_logs:
-    display_log_window()
-
-# ==========================================
-# TAB 4: CONFIGURATION
+# TAB 3: CONFIGURATION
 # ==========================================
 with tab_config:
     st.subheader("📝 AI Prompts")
@@ -256,7 +289,7 @@ with tab_config:
     st.markdown("---")
     st.subheader("🔑 API & Connections")
     
-    st.text_input("LiveAgent API Key", value=VAS_API_KLUC, type="password", disabled=True, key="api_key")
-    st.text_input("Google Sheet Name", value=sheet_name, disabled=True, key="sheet_name")
-    st.text_input("Credentials File", value=creds_file, disabled=True, key="creds_file")
+    st.text_input("LiveAgent API Key", value=VAS_API_KLUC, type="password", disabled=True, key="api_key_display")
+    st.text_input("Google Sheet Name", value=sheet_name, disabled=True, key="sheet_name_display")
+    st.text_input("Credentials File", value=creds_file, disabled=True, key="creds_file_display")
     st.caption("⚠️ Tieto hodnoty sú načítané z konfigurácie a nie sú editovateľné v UI.")
