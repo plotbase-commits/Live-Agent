@@ -241,11 +241,13 @@ class AnalysisService:
                     add_log(f"Analysis: Ticket {ticket_id} - Score: {qa_score}, Critical: {is_critical}")
                     
                     if is_critical == "TRUE":
-                        # Get agent name from row (column index 2 is Agent)
-                        agent_for_alert = row[2] if len(row) > 2 and row[2] else "Unknown"
+                        # Get agent name from row (column index 2 is Agent, 3 is Date_Changed)
+                        agent_for_alert = row[2] if len(row) > 2 and row[2] else "Nepriradený"
+                        date_changed = row[3] if len(row) > 3 and row[3] else "N/A"
                         alerts_data.append({
                             "ticket_id": ticket_id,
                             "agent_name": agent_for_alert,
+                            "date_changed": date_changed,
                             "reason": alert_reason,
                             "alert_reason": alert_reason,  # For email template compatibility
                             "ticket_url": f"https://plotbase.ladesk.com/agent/#Conversation;id={ticket_id}"
