@@ -18,27 +18,6 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-# LiveAgent Message Group Types (podľa API dokumentácie)
-# Typy s reálnou komunikáciou:
-COMMUNICATION_TYPES = {
-    '3': 'Incoming Email (nový tiket)',      # Zákazník vytvoril tiket
-    '4': 'Outgoing Email (agent odpoveď)',   # Agent odpovedal
-    '5': 'Offline (kontaktný formulár)',     # Zákazník cez formulár
-    '7': 'Incoming Email (odpoveď)',         # Zákazník odpovedal
-}
-# Typy zákazníka (incoming)
-CUSTOMER_TYPES = ['3', '5', '7']
-# Typy agenta (outgoing)
-AGENT_TYPES = ['4']
-
-# Statusy tiketov
-# Statusy kde VYŽADUJEME odpoveď agenta (ticket bol spracovaný agentom)
-REQUIRES_AGENT_RESPONSE = ['A']  # Answered = agent odpovedal (definícia)
-# Statusy kde STAČÍ správa od zákazníka (agent nemusel odpovedať)
-CUSTOMER_ONLY_OK = ['N', 'C', 'W', 'R']  # New, Open, Postponed, Resolved
-# Všetky povolené statusy
-ALLOWED_STATUSES = REQUIRES_AGENT_RESPONSE + CUSTOMER_ONLY_OK
-
 # --- Helper Functions ---
 
 def get_liveagent_tickets(api_key, page=1, per_page=20):
@@ -68,38 +47,6 @@ def get_ticket_messages(api_key, ticket_id):
     except requests.exceptions.RequestException as e:
         st.error(f"Error fetching messages for ticket {ticket_id}: {e}")
         return []
-
-def filter_communication_groups(message_groups):
-    """Filters message groups to only include real communication (not system notifications)."""
-    if not isinstance(message_groups, list):
-        return []
-    return [g for g in message_groups if g.get('type') in COMMUNICATION_TYPES]
-
-def should_import_ticket(message_groups, status_code):
-    """
-    Rozhoduje či tiket importovať na základe statusu a komunikácie.
-    
-    Logika:
-    - Pre statusy N, C, W: stačí správa od zákazníka (agent nemusel ešte odpovedať)
-    - Pre statusy A, R: vyžadujeme zákazníka AJ agenta (obojsmerná komunikácia)
-    """
-    group_types = [g.get('type') for g in message_groups]
-    has_customer = any(t in CUSTOMER_TYPES for t in group_types)
-    has_agent = any(t in AGENT_TYPES for t in group_types)
-    
-    # Ak nie je žiadna správa od zákazníka, preskočiť (len systémové notifikácie)
-    if not has_customer:
-        return False
-    
-    # Pre statusy kde stačí zákazník
-    if status_code in CUSTOMER_ONLY_OK:
-        return True  # Stačí že zákazník napísal
-    
-    # Pre statusy kde vyžadujeme aj agenta (A, R)
-    if status_code in REQUIRES_AGENT_RESPONSE:
-        return has_agent  # Musí mať aj odpoveď agenta
-    
-    return False
 
 def process_transcript(message_groups):
     """Processes message groups into a structured transcript."""
@@ -248,24 +195,15 @@ def sync_data(api_key, sheet_name, creds_file, progress_bar, status_text, url_ba
             # Rate limiting
             time.sleep(0.1)
             
-            # Filter by status: N (New), C (Open), A (Answered), R (Resolved), W (Postponed)
+            # Filter by status: Answered (A), Resolved (R), Postponed (W)
             status_code = ticket.get('status')
-            if status_code not in ALLOWED_STATUSES:
+            if status_code not in ['A', 'R', 'W']:
                 continue
 
             # Fetch messages
             status_text.text(f"Processing ticket {ticket_id}...")
             messages = get_ticket_messages(api_key, ticket_id)
-            
-            # Filter to only communication groups (skip system notifications)
-            communication_groups = filter_communication_groups(messages)
-            
-            # Check if ticket should be imported based on status and communication
-            if not should_import_ticket(communication_groups, status_code):
-                status_text.text(f"Skipping ticket {ticket_id} (no relevant communication)...")
-                continue
-            
-            transcript = process_transcript(communication_groups)
+            transcript = process_transcript(messages)
             
             # Status Mapping
             STATUS_MAP = {

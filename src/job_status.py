@@ -55,12 +55,10 @@ def add_log(message):
         f.writelines(logs)
 
 def get_logs():
-    """Returns all logs (newest first)."""
+    """Returns all logs."""
     if os.path.exists(LOG_FILE):
         with open(LOG_FILE, "r") as f:
-            lines = f.readlines()
-            # Reverse to show newest first
-            return "".join(reversed(lines))
+            return f.read()
     return "No logs yet."
 
 def clear_logs():
@@ -77,52 +75,33 @@ def clear_status(job_name):
             json.dump(all_status, f, indent=2)
 
 def display_status_sidebar():
-    """Legacy function - now just a passthrough."""
-    pass  # Status is now in main content
-
-def display_job_status():
-    """Displays job status in main content with auto-refresh."""
+    """Displays job status in Streamlit sidebar."""
     import streamlit as st
     
-    @st.fragment(run_every=5)  # Auto-refresh every 5 seconds
-    def _status_fragment():
-        statuses = get_status()
-        
-        if not statuses:
-            st.info("🔄 No background jobs running")
-            return
-        
-        # Check if any job is running
-        any_running = any(info.get("status") == "running" for info in statuses.values())
-        
-        # Create columns for better layout
-        cols = st.columns(len(statuses))
-        
-        for i, (job_name, info) in enumerate(statuses.items()):
-            with cols[i]:
-                status = info.get("status", "idle")
-                progress = info.get("progress", 0)
-                message = info.get("message", "")
-                updated = info.get("updated_at", "")
-                
-                if status == "running":
-                    st.markdown(f"### {job_name} 🟢")
-                    st.progress(progress / 100)
-                    st.caption(f"{message}")
-                    st.caption(f"Updated: {updated}")
-                elif status == "completed":
-                    st.markdown(f"### {job_name} ✅")
-                    st.success(f"{message}")
-                elif status == "error":
-                    st.markdown(f"### {job_name} ❌")
-                    st.error(f"{message}")
-        
-        if any_running:
-            st.caption("⏳ Auto-refreshing every 5 seconds...")
+    statuses = get_status()
     
-    # Render the fragment
-    st.subheader("🔄 Background Jobs")
-    _status_fragment()
+    if not statuses:
+        return
+    
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🔄 Background Jobs")
+    
+    for job_name, info in statuses.items():
+        status = info.get("status", "idle")
+        progress = info.get("progress", 0)
+        message = info.get("message", "")
+        updated = info.get("updated_at", "")
+        
+        if status == "running":
+            st.sidebar.markdown(f"**{job_name}** 🟢 Running")
+            st.sidebar.progress(progress / 100)
+            st.sidebar.caption(f"{message} ({updated})")
+        elif status == "completed":
+            st.sidebar.markdown(f"**{job_name}** ✅ Done")
+            st.sidebar.caption(f"{message}")
+        elif status == "error":
+            st.sidebar.markdown(f"**{job_name}** ❌ Error")
+            st.sidebar.caption(f"{message}")
 
 def display_log_window():
     """Displays scrollable log window."""
