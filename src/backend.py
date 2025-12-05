@@ -98,8 +98,9 @@ class ETLService:
                     transcript = process_transcript(messages, agents_map, users_map)
                     
                     # Prepare Row
-                    # Extract agent from messages (more reliable than ticket.agent_id)
-                    agent_name = self._extract_agent_from_messages(messages, agents_map)
+                    # Use ticket.agentid from API (currently assigned agent - more accurate)
+                    agentid = ticket.get('agentid')
+                    agent_name = agents_map.get(agentid, 'Nepriradený') if agentid else 'Nepriradený'
                     
                     ticket_link = f"https://plotbase.ladesk.com/agent/#Conversation;id={ticket_id}"
                     
