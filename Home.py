@@ -86,7 +86,7 @@ def get_status_color(score, critical_ratio):
         return "#ff4b4b"  # Red
 
 def load_agent_stats():
-    """Load agent statistics from Raw_Tickets sheet."""
+    """Load agent statistics from Raw_Tickets sheet - CURRENT MONTH ONLY."""
     try:
         import gspread
         from google.oauth2.service_account import Credentials
@@ -112,17 +112,32 @@ def load_agent_stats():
         
         data = ws.get_all_records()
         
+        # Get current month for filtering
+        current_month = datetime.now().strftime("%Y-%m")
+        
         # Aggregate by agent
         agent_stats = {}
         for row in data:
+            # Filter by current month (based on Date_Changed)
+            date_changed = row.get("Date_Changed", "")
+            if date_changed:
+                try:
+                    # Try to parse date and check if it's current month
+                    # Format could be "2024-12-05 14:30" or similar
+                    row_month = date_changed[:7]  # Get "YYYY-MM"
+                    if row_month != current_month:
+                        continue  # Skip tickets from other months
+                except:
+                    pass  # If date parsing fails, include the row
+            
             agent = row.get("Agent", "Unknown")
-            if not agent or agent == "Unknown":
+            if not agent or agent == "Unknown" or agent == "Nepriradený":
                 continue
             
             if agent not in agent_stats:
                 agent_stats[agent] = {
                     "tickets": 0,
-                    "analyzed_tickets": 0,  # NEW: Only tickets with QA_Data
+                    "analyzed_tickets": 0,
                     "total_score": 0,
                     "critical_count": 0,
                     "criteria": {"empathy": [], "expertise": [], "problem_solving": [], "error_rate": []},
@@ -138,7 +153,7 @@ def load_agent_stats():
                     qa_data = json.loads(qa_data_str)
                     score = qa_data.get("overall_score", 0)
                     agent_stats[agent]["total_score"] += score
-                    agent_stats[agent]["analyzed_tickets"] += 1  # NEW: Count analyzed
+                    agent_stats[agent]["analyzed_tickets"] += 1
                     
                     criteria = qa_data.get("criteria", {})
                     for key in ["empathy", "expertise", "problem_solving", "error_rate"]:
@@ -158,7 +173,6 @@ def load_agent_stats():
         # Calculate averages
         for agent in agent_stats:
             stats = agent_stats[agent]
-            # FIX: Divide by analyzed_tickets, not all tickets
             if stats["analyzed_tickets"] > 0:
                 stats["avg_score"] = stats["total_score"] / stats["analyzed_tickets"]
             else:
@@ -182,6 +196,7 @@ def create_agent_card(agent_name, stats):
     """Create an agent card with stats."""
     score = stats.get("avg_score", 0)
     tickets = stats.get("tickets", 0)
+    analyzed = stats.get("analyzed_tickets", 0)
     critical_count = stats.get("critical_count", 0)
     critical_ratio = stats.get("critical_ratio", 0)
     criteria = stats.get("criteria", {})
@@ -198,12 +213,12 @@ def create_agent_card(agent_name, stats):
                     border-radius: 12px; padding: 20px; margin-bottom: 10px;
                     border-left: 4px solid {status_color};">
             <h3 style="margin: 0; color: white;">{status_icon} {agent_name}</h3>
-            <p style="color: #888; margin: 5px 0;">Tickets: {tickets} | Critical: {critical_count} ({critical_pct:.0f}%)</p>
+            <p style="color: #888; margin: 5px 0;">Analyzed: {analyzed}/{tickets} | Critical: {critical_count} ({critical_pct:.0f}%)</p>
         </div>
         """, unsafe_allow_html=True)
         
         # Score progress bar
-        st.progress(int(score) / 100)
+        st.progress(int(score) / 100 if score > 0 else 0)
         st.markdown(f"**Overall Score: {score:.0f}%**")
         
         # Criteria bar chart
@@ -233,9 +248,12 @@ def create_agent_card(agent_name, stats):
                 st.write("No summary available yet.")
 
 # --- Main Dashboard ---
+current_month_name = datetime.now().strftime("%B %Y")
 
 # Last sync info
 col_title, col_sync = st.columns([3, 1])
+with col_title:
+    st.caption(f"📅 Zobrazené dáta: **{current_month_name}**")
 with col_sync:
     st.caption(f"Last update: {datetime.now().strftime('%H:%M')}")
     if st.button("🔄 Refresh"):
@@ -249,23 +267,27 @@ if not agent_stats:
     st.info("No agent data available yet. Run ETL and AI Analysis first from the Settings page.")
     st.page_link("pages/Settings.py", label="⚙️ Go to Settings", icon="⚙️")
 else:
-    # Summary metrics
+    # Summary metrics - FIXED CALCULATIONS
     st.markdown("---")
     total_agents = len(agent_stats)
     total_tickets = sum(s["tickets"] for s in agent_stats.values())
+    total_analyzed = sum(s["analyzed_tickets"] for s in agent_stats.values())
     total_critical = sum(s["critical_count"] for s in agent_stats.values())
-    avg_score = sum(s["avg_score"] for s in agent_stats.values()) / total_agents if total_agents > 0 else 0
+    total_score_sum = sum(s["total_score"] for s in agent_stats.values())
+    
+    # FIXED: Weighted average score (per ticket, not per agent)
+    avg_score = total_score_sum / total_analyzed if total_analyzed > 0 else 0
     
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("👥 Agents", total_agents)
-    m2.metric("🎫 Tickets Analyzed", total_tickets)
+    m2.metric("🎫 Tickets Analyzed", f"{total_analyzed}/{total_tickets}")
     m3.metric("🔴 Critical Issues", total_critical)
     m4.metric("📈 Avg Score", f"{avg_score:.0f}%")
     
     st.markdown("---")
     
-    # Agent Cards Grid (2x4)
-    agents = list(agent_stats.keys())
+    # Agent Cards Grid - SORTED ALPHABETICALLY
+    agents = sorted(agent_stats.keys())  # FIXED: Sort alphabetically
     
     # Create rows of 4 agents
     for i in range(0, len(agents), 4):
@@ -278,4 +300,4 @@ else:
 
 # --- Footer ---
 st.markdown("---")
-st.caption("QA Dashboard v1.0 | Powered by Gemini AI")
+st.caption(f"QA Dashboard v1.0 | Powered by Gemini AI | {current_month_name}")
