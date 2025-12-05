@@ -259,6 +259,9 @@ def is_human_interaction(message_groups, agents_map):
         # Vlastné domény (own shop notifications)
         'plotbase.sk', 'plotbase.cz', 'plotbase.at', 'plotbase.de', 'plotbase.hu',
         
+        # Partneri / Dodávatelia (Partners / Suppliers)
+        'justprint.sk',
+        
         # Platobné brány (Payment gateways)
         'payu.com', 'payu.pl', 'payu.cz',
         'gopay.cz', 'gopay.com',
