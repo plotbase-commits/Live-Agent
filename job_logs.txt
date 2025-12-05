@@ -1,0 +1,100 @@
+[15:08:35] ETL: Added ticket 9syie0yi (Unknown)
+[15:08:36] [ETL] RUNNING: Page 3/5...
+[15:08:36] ETL: Fetching page 3...
+[15:08:37] ETL: Added ticket e65nw69h (Unknown)
+[15:08:38] ETL: Added ticket t4ya9n53 (Unknown)
+[15:08:38] ETL: Added ticket vx3ruped (Unknown)
+[15:08:39] ETL: Added ticket 14upqnyd (Unknown)
+[15:08:40] ETL: Added ticket ymc8xpy9 (Unknown)
+[15:08:40] ETL: Added ticket tp7vmq4f (Unknown)
+[15:08:41] ETL: Added ticket c49jqezw (Unknown)
+[15:08:42] ETL: Added ticket oj4pts0k (Unknown)
+[15:08:43] ETL: Added ticket 3r23fzrm (Unknown)
+[15:08:44] ETL: Added ticket 3v9mjy28 (Unknown)
+[15:08:44] ETL: Added ticket 7l9dmonp (Unknown)
+[15:08:45] ETL: Added ticket komu5d0b (Unknown)
+[15:08:46] ETL: Added ticket 0v719t8x (Unknown)
+[15:08:47] ETL: Added ticket 64qlo2ja (Unknown)
+[15:08:48] ETL: Added ticket 9pwoa96i (Unknown)
+[15:08:49] ETL: Added ticket 4g5lzifn (Unknown)
+[15:08:50] ETL: Added ticket e5mffz4k (Unknown)
+[15:08:50] ETL: Added ticket sq426nuc (Unknown)
+[15:08:51] ETL: Added ticket vybhn33k (Unknown)
+[15:08:52] ETL: Added ticket anvcek2j (Unknown)
+[15:08:53] [ETL] RUNNING: Page 4/5...
+[15:08:53] ETL: Fetching page 4...
+[15:08:54] ETL: Added ticket 8u6xyvkw (Unknown)
+[15:08:55] ETL: Added ticket 976hg3dl (Unknown)
+[15:08:56] ETL: Added ticket xqw3h4fi (Unknown)
+[15:08:56] ETL: Added ticket 62fx7x0s (Unknown)
+[15:08:57] ETL: Added ticket 2d52qtdb (Unknown)
+[15:08:58] ETL: Added ticket u1u0bmz3 (Unknown)
+[15:08:59] ETL: Added ticket ee1bkl1q (Unknown)
+[15:09:00] ETL: Added ticket suz7ghhz (Unknown)
+[15:09:00] ETL: Added ticket dlw6b1ah (Unknown)
+[15:09:01] ETL: Added ticket 4y64bkgq (Unknown)
+[15:09:02] ETL: Added ticket wsx8a85r (Unknown)
+[15:09:02] ETL: Added ticket 0otr747d (Unknown)
+[15:09:03] ETL: Added ticket 6e7qhbb4 (Unknown)
+[15:09:04] ETL: Added ticket 7amxgz6d (Unknown)
+[15:09:05] ETL: Added ticket 7hsuooxw (Unknown)
+[15:09:06] ETL: Added ticket 4scw68iy (Unknown)
+[15:09:07] ETL: Added ticket 07b1nf0c (Unknown)
+[15:09:07] ETL: Added ticket 9o8go4g8 (Unknown)
+[15:09:08] ETL: Added ticket nteuf227 (Unknown)
+[15:09:09] ETL: Added ticket 8ynk3xn7 (Unknown)
+[15:09:10] [ETL] RUNNING: Page 5/5...
+[15:09:10] ETL: Fetching page 5...
+[15:09:12] ETL: Added ticket 985tlgn3 (Unknown)
+[15:09:13] ETL: Added ticket rggayzq1 (Unknown)
+[15:09:14] ETL: Added ticket fa6rlr4r (Unknown)
+[15:09:14] ETL: Added ticket at2hvr0d (Unknown)
+[15:09:15] ETL: Added ticket vv758alq (Unknown)
+[15:09:16] ETL: Added ticket 54h0dn2l (Unknown)
+[15:09:17] ETL: Added ticket 103filek (Unknown)
+[15:09:18] ETL: Added ticket mn5d6woj (Unknown)
+[15:09:18] ETL: Added ticket 531wnt5c (Unknown)
+[15:09:19] ETL: Added ticket o31aphoa (Unknown)
+[15:09:20] ETL: Added ticket 8s62w177 (Unknown)
+[15:09:21] ETL: Added ticket qmqgrq2w (Unknown)
+[15:09:22] ETL: Added ticket r596ew1j (Unknown)
+[15:09:23] ETL: Added ticket e791klvu (Unknown)
+[15:09:24] ETL: Added ticket 8wivql1o (Unknown)
+[15:09:24] ETL: Added ticket 9btq6zjh (Unknown)
+[15:09:25] ETL: Added ticket elmm97o0 (Unknown)
+[15:09:26] ETL: Added ticket efwwesf0 (Unknown)
+[15:09:26] ETL: Added ticket l5f88cxp (Unknown)
+[15:09:27] ETL: Added ticket 8v8uhajl (Unknown)
+[15:09:27] [ETL] RUNNING: Saving 100 tickets...
+[15:09:31] [ETL] COMPLETED: Done! 100 new tickets.
+[15:28:58] [ETL] RUNNING: Starting...
+[15:29:05] [ETL] RUNNING: Fetching tickets...
+[15:29:05] [ETL] RUNNING: Page 1/5...
+[15:29:05] ETL: Fetching page 1...
+[15:29:06] ETL: Added ticket pezy5pg7 (Unknown)
+[15:29:07] ETL: Added ticket b3uqiy7c (Unknown)
+[15:29:08] ETL: Added ticket 74xuntfe (Unknown)
+[15:29:09] ETL: Added ticket z1ax2n6u (Unknown)
+[15:29:09] ETL: Added ticket kedy92h2 (Unknown)
+[15:29:10] ETL: Added ticket e4e2k5bs (Unknown)
+[15:29:10] ETL: Added ticket 8sh9td4w (Unknown)
+[15:29:11] ETL: Added ticket iy1ob541 (Unknown)
+[15:29:12] ETL: Added ticket xuc8hor5 (Unknown)
+[15:29:13] [ETL] RUNNING: Page 2/5...
+[15:29:13] ETL: Fetching page 2...
+[15:29:14] ETL: Added ticket jxn2nckx (Unknown)
+[15:29:14] ETL: Added ticket hida0s0h (Unknown)
+[15:29:15] ETL: Added ticket ljw2jkuk (Unknown)
+[15:29:16] ETL: Added ticket 2u97lgd9 (Unknown)
+[15:29:17] ETL: Added ticket vaa243j4 (Unknown)
+[15:29:18] ETL: Added ticket c8hy4mon (Unknown)
+[15:29:19] ETL: Added ticket vk0h7osg (Unknown)
+[15:29:19] ETL: Added ticket kul3kfvv (Unknown)
+[15:29:20] [ETL] RUNNING: Page 3/5...
+[15:29:20] ETL: Fetching page 3...
+[15:29:21] [ETL] RUNNING: Page 4/5...
+[15:29:21] ETL: Fetching page 4...
+[15:29:22] [ETL] RUNNING: Page 5/5...
+[15:29:22] ETL: Fetching page 5...
+[15:29:23] [ETL] RUNNING: Saving 17 tickets...
+[15:29:24] [ETL] COMPLETED: Done! 17 new tickets.

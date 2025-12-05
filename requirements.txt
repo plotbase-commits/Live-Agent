@@ -7,3 +7,5 @@ beautifulsoup4
 schedule
 plotly
 google-generativeai
+python-dotenv
+apscheduler

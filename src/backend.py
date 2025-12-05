@@ -59,6 +59,11 @@ class ETLService:
                 for ticket in tickets:
                     ticket_id = str(ticket.get('id'))
                     
+                    # Skip non-email tickets (phone calls, etc.)
+                    if ticket.get('channel_type') != 'E':
+                        add_log(f"ETL: Skipped {ticket_id} (channel: {ticket.get('channel_type')})")
+                        continue
+                    
                     # Skip if already exists
                     if ticket_id in existing_ids:
                         continue

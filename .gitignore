@@ -5,5 +5,3 @@ vertex-credentials.json
 __pycache__/
 *.pyc
 .DS_Store
-job_logs.txt
-job_status.json
