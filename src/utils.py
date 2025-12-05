@@ -32,7 +32,12 @@ def get_agents(api_key):
     """Fetches list of agents from LiveAgent API."""
     headers = {"apikey": api_key}
     try:
-        response = requests.get(f"{LIVEAGENT_API_URL}/agents", headers=headers)
+        # Note: API defaults to 10 records, we need all agents
+        response = requests.get(
+            f"{LIVEAGENT_API_URL}/agents", 
+            headers=headers,
+            params={"_perPage": 100}
+        )
         response.raise_for_status()
         agents_data = response.json()
         # Create a mapping of agent ID to full name
@@ -59,7 +64,12 @@ def get_users(api_key):
     """Fetches list of users/contacts from LiveAgent API."""
     headers = {"apikey": api_key}
     try:
-        response = requests.get(f"{LIVEAGENT_API_URL}/contacts", headers=headers)
+        # Note: API defaults to 10 records, we need more contacts
+        response = requests.get(
+            f"{LIVEAGENT_API_URL}/contacts", 
+            headers=headers,
+            params={"_perPage": 500}
+        )
         response.raise_for_status()
         users_data = response.json()
         # Create a mapping of user ID to full name
