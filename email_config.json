@@ -2,6 +2,6 @@
     "recipients": [
         "martin.bohm@plotbase.sk"
     ],
-    "subject_template": "🚨 KRITICKÝ ALERT: Ticket {ticket_id} ({agent_name})",
-    "body_template": "Bol detegovaný kritický problém v tikete.\n\nTicket ID: {ticket_id}\nAgent: {agent_name}\nDátum zmeny: {date_changed}\nDôvod: {alert_reason}\n\nOdkaz: {ticket_url}\n\nProsím o okamžitú kontrolu."
+    "subject_template": "\ud83d\udea8 KRITICK\u00dd ALERT: Ticket {ticket_id} ({agent_name})",
+    "body_template": "Bol detegovan\u00fd kritick\u00fd probl\u00e9m v tikete.\n\n**Ticket ID:** {ticket_id}\n**Agent:** {agent_name}\n**D\u00e1tum zmeny:** {date_changed}\n**D\u00f4vod:** {alert_reason}\n\nOdkaz: {ticket_url}\n\nPros\u00edm o okam\u017eit\u00fa kontrolu."
 }
