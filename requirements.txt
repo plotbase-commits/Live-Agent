@@ -5,3 +5,5 @@ gspread
 google-auth
 beautifulsoup4
 schedule
+plotly
+google-generativeai

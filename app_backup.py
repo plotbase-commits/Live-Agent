@@ -10,11 +10,13 @@ from zoneinfo import ZoneInfo
 import schedule
 import os
 import re
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # --- Configuration ---
 LIVEAGENT_API_URL = "https://plotbase.ladesk.com/api/v3"
-# Placeholder for API Key as requested, but pre-filled with the provided key for convenience
-VAS_API_KLUC = "ixlp2t3emrrh63pplvrb1eb6zsymv59ajk7pk0msgp" 
+VAS_API_KLUC = os.getenv("LIVEAGENT_API_KEY", "")  # Set in .env file
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"

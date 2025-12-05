@@ -1,8 +1,12 @@
 import requests
 import json
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 API_URL = "https://plotbase.ladesk.com/api/v3"
-API_KEY = "ixlp2t3emrrh63pplvrb1eb6zsymv59ajk7pk0msgp"
+API_KEY = os.getenv("LIVEAGENT_API_KEY", "")
 
 headers = {"apikey": API_KEY}
 

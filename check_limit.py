@@ -1,8 +1,12 @@
 import requests
 import json
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 LIVEAGENT_API_URL = "https://plotbase.ladesk.com/api/v3"
-VAS_API_KLUC = "ixlp2t3emrrh63pplvrb1eb6zsymv59ajk7pk0msgp"
+VAS_API_KLUC = os.getenv("LIVEAGENT_API_KEY", "")
 
 def check_page_5_date():
     headers = {"apikey": VAS_API_KLUC}
