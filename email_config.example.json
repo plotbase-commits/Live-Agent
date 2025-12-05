@@ -1,0 +1,7 @@
+{
+    "recipients": [
+        "admin@example.com"
+    ],
+    "subject_template": "🚨 KRITICKÝ ALERT: Ticket {ticket_id} ({agent_name})",
+    "body_template": "Bol detegovaný kritický problém v tikete.\n\n**Ticket ID:** {ticket_id}\n**Agent:** {agent_name}\n**Dátum zmeny:** {date_changed}\n**Dôvod:** {alert_reason}\n\nOdkaz: {ticket_url}\n\nProsím o okamžitú kontrolu."
+}

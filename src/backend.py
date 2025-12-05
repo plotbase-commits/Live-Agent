@@ -9,6 +9,9 @@ from src.ai_service import AIService
 from src.alerting import EmailService
 from src.job_status import set_status, clear_status, add_log
 
+# Get base URL from environment for ticket links
+LIVEAGENT_AGENT_URL = os.getenv("LIVEAGENT_AGENT_URL", "https://your-instance.ladesk.com/agent")
+
 class ETLService:
     def __init__(self, api_key, sheet_manager):
         self.api_key = api_key
@@ -102,7 +105,7 @@ class ETLService:
                     agentid = ticket.get('agentid')
                     agent_name = agents_map.get(agentid, 'Nepriradený') if agentid else 'Nepriradený'
                     
-                    ticket_link = f"https://plotbase.ladesk.com/agent/#Conversation;id={ticket_id}"
+                    ticket_link = f"{LIVEAGENT_AGENT_URL}/#Conversation;id={ticket_id}"
                     
                     row = [
                         ticket_id,
@@ -251,7 +254,7 @@ class AnalysisService:
                             "date_changed": date_changed,
                             "reason": alert_reason,
                             "alert_reason": alert_reason,  # For email template compatibility
-                            "ticket_url": f"https://plotbase.ladesk.com/agent/#Conversation;id={ticket_id}"
+                            "ticket_url": f"{LIVEAGENT_AGENT_URL}/#Conversation;id={ticket_id}"
                         })
             
             # Batch Update Sheet

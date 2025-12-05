@@ -1,11 +1,16 @@
+# Credentials (NEVER commit these!)
 credentials.json
 vertex-credentials.json
 .env
+
+# Runtime files
 .venv/
 __pycache__/
 *.pyc
 .DS_Store
-
-# Runtime logs
 job_logs.txt
 job_status.json
+
+# Config files with sensitive data (use .example versions)
+email_config.json
+prompts.json

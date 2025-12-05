@@ -1,0 +1,4 @@
+{
+    "qa_prompt": "EXAMPLE - Replace with your QA evaluation prompt",
+    "alert_prompt": "EXAMPLE - Replace with your critical issue detection prompt"
+}
