@@ -60,8 +60,8 @@ display_status_sidebar()
 def get_status_icon(score, critical_ratio):
     """Returns status icon based on score and critical ratio."""
     # Critical ratio thresholds override score
-    if critical_ratio > 0.10:  # More than 10% critical = always red
-        return "🔴"
+    if critical_ratio > 0.10:  # More than 10% critical = ALARM
+        return "🚨"
     elif critical_ratio > 0.05:  # 5-10% critical = warning
         return "⚠️"
     # Otherwise use score
