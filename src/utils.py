@@ -266,35 +266,49 @@ def is_human_interaction(message_groups, agents_map):
             continue
         
         # SECONDARY FILTER: Check for own-domain notifications
-        # These are automated emails FROM our own shop (e.g. order status updates)
-        owner_email = ''
+        # Extract From: header from the group's messages
+        from_email = ''
+        has_valid_content = False
+        is_from_ignored_domain = False
+        
         if 'messages' in group and isinstance(group['messages'], list):
             for msg in group['messages']:
-                # Check userid for own domain
+                msg_type = msg.get('type', '')
+                body = msg.get('message', '') or ''
+                
+                # Extract From: header (type H messages contain headers)
+                if msg_type == 'H' and body.lower().startswith('from:'):
+                    from_email = body.lower()
+                    # Check if From: contains ignored domain
+                    if any(domain in from_email for domain in IGNORED_DOMAINS):
+                        is_from_ignored_domain = True
+                
+                # Check userid and author_name as fallback
                 userid = str(msg.get('userid', ''))
-                author_name = msg.get('user_full_name', '') or msg.get('name', '')
+                author_name = msg.get('user_full_name', '') or msg.get('name', '') or ''
                 
-                # Skip own domain emails (automated notifications from our shop)
                 if any(domain in userid.lower() for domain in IGNORED_DOMAINS):
-                    continue
+                    is_from_ignored_domain = True
                 if any(domain in author_name.lower() for domain in IGNORED_DOMAINS):
-                    continue
-                    
-                # Check for actual content
-                body = msg.get('message', '')
-                if not body:
-                    continue
+                    is_from_ignored_domain = True
                 
-                try:
-                    soup = BeautifulSoup(body, 'html.parser')
-                    text = soup.get_text().strip()
-                    if not text:
-                        continue
-                except:
-                    if not body.strip():
-                        continue
-                
-                # If we reach here, it's valid human communication
+                # Check for actual content (type M = message body)
+                if msg_type == 'M' and body:
+                    try:
+                        soup = BeautifulSoup(body, 'html.parser')
+                        text = soup.get_text().strip()
+                        if text:
+                            has_valid_content = True
+                    except:
+                        if body.strip():
+                            has_valid_content = True
+            
+            # If this group has content but is from ignored domain, skip it
+            if is_from_ignored_domain:
+                continue
+            
+            # If we have valid content from non-ignored domain, it's human communication
+            if has_valid_content:
                 return True
 
     return False
