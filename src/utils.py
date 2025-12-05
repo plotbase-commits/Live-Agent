@@ -246,7 +246,7 @@ def is_human_interaction(message_groups, agents_map):
     - Type G: Tag operations
     - Type R: Resolve operations
     
-    Additionally filters out own-domain notifications (e.g. plotbase@plotbase.sk).
+    Additionally filters out automated system emails (payment gateways, shipping, etc.).
     """
     if not message_groups or not isinstance(message_groups, list):
         return False
@@ -254,8 +254,44 @@ def is_human_interaction(message_groups, agents_map):
     # Communication types (human interaction)
     COMMUNICATION_TYPES = {'3', '4', '5', '7'}
     
-    # Domains to ignore (own shop automated notifications)
-    IGNORED_DOMAINS = ['plotbase.sk', 'plotbase.cz', 'plotbase.at', 'plotbase.de', 'plotbase.hu']
+    # System/automated senders to ignore
+    SYSTEM_SENDERS = [
+        # Vlastné domény (own shop notifications)
+        'plotbase.sk', 'plotbase.cz', 'plotbase.at', 'plotbase.de', 'plotbase.hu',
+        
+        # Platobné brány (Payment gateways)
+        'payu.com', 'payu.pl', 'payu.cz',
+        'gopay.cz', 'gopay.com',
+        'stripe.com',
+        'paypal.com',
+        'comgate.cz',
+        'thepay.cz',
+        'tatrapay.sk',
+        'besteron.com',
+        'cardpay.sk',
+        
+        # Dopravcovia (Shipping companies)
+        'dhl.com', 'dhl.sk', 'dhl.cz',
+        'dpd.sk', 'dpd.cz', 'dpd.com',
+        'gls-group.eu', 'gls-slovakia.sk',
+        'ups.com',
+        'fedex.com',
+        'packeta.com', 'zasilkovna.cz',
+        'posta.sk', 'ceskaposta.cz',
+        '123kurier.sk',
+        'toptrans.sk',
+        
+        # No-reply vzory (automated patterns)
+        'no-reply@',
+        'noreply@',
+        'donotreply@',
+        'notification@',
+        'notifications@',
+        'notify@',
+        'automated@',
+        'mailer-daemon@',
+        'postmaster@',
+    ]
 
     for group in message_groups:
         # PRIMARY FILTER: Check group type
@@ -265,11 +301,11 @@ def is_human_interaction(message_groups, agents_map):
         if group_type not in COMMUNICATION_TYPES:
             continue
         
-        # SECONDARY FILTER: Check for own-domain notifications
+        # SECONDARY FILTER: Check for system/automated senders
         # Extract From: header from the group's messages
         from_email = ''
         has_valid_content = False
-        is_from_ignored_domain = False
+        is_system_sender = False
         
         if 'messages' in group and isinstance(group['messages'], list):
             for msg in group['messages']:
@@ -279,18 +315,23 @@ def is_human_interaction(message_groups, agents_map):
                 # Extract From: header (type H messages contain headers)
                 if msg_type == 'H' and body.lower().startswith('from:'):
                     from_email = body.lower()
-                    # Check if From: contains ignored domain
-                    if any(domain in from_email for domain in IGNORED_DOMAINS):
-                        is_from_ignored_domain = True
+                    # Check if From: contains system sender
+                    if any(sender in from_email for sender in SYSTEM_SENDERS):
+                        is_system_sender = True
+                
+                # Also check Reply-to header for no-reply patterns
+                if msg_type == 'H' and body.lower().startswith('reply'):
+                    if any(pattern in body.lower() for pattern in ['no-reply@', 'noreply@', 'donotreply@']):
+                        is_system_sender = True
                 
                 # Check userid and author_name as fallback
                 userid = str(msg.get('userid', ''))
                 author_name = msg.get('user_full_name', '') or msg.get('name', '') or ''
                 
-                if any(domain in userid.lower() for domain in IGNORED_DOMAINS):
-                    is_from_ignored_domain = True
-                if any(domain in author_name.lower() for domain in IGNORED_DOMAINS):
-                    is_from_ignored_domain = True
+                if any(sender in userid.lower() for sender in SYSTEM_SENDERS):
+                    is_system_sender = True
+                if any(sender in author_name.lower() for sender in SYSTEM_SENDERS):
+                    is_system_sender = True
                 
                 # Check for actual content (type M = message body)
                 if msg_type == 'M' and body:
@@ -303,12 +344,13 @@ def is_human_interaction(message_groups, agents_map):
                         if body.strip():
                             has_valid_content = True
             
-            # If this group has content but is from ignored domain, skip it
-            if is_from_ignored_domain:
+            # If this group is from system sender, skip it
+            if is_system_sender:
                 continue
             
-            # If we have valid content from non-ignored domain, it's human communication
+            # If we have valid content from non-system sender, it's human communication
             if has_valid_content:
                 return True
 
     return False
+
