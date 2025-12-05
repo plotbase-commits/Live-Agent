@@ -9,7 +9,7 @@ load_dotenv()
 LIVEAGENT_API_URL = "https://plotbase.ladesk.com/api/v3"
 
 # Default values from Environment Variables
-DEFAULT_LIVEAGENT_KEY = os.getenv("LIVEAGENT_API_KEY", "ixlp2t3emrrh63pplvrb1eb6zsymv59ajk7pk0msgp")
+DEFAULT_LIVEAGENT_KEY = os.getenv("LIVEAGENT_API_KEY", "")  # Set in .env file
 DEFAULT_GOOGLE_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "")
 DEFAULT_GOOGLE_LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 DEFAULT_GMAIL_USER = os.getenv("GMAIL_USER", "")
