@@ -255,7 +255,7 @@ def is_human_interaction(message_groups, agents_map):
     COMMUNICATION_TYPES = {'3', '4', '5', '7'}
     
     # Domains to ignore (own shop automated notifications)
-    IGNORED_DOMAINS = ['plotbase.sk', 'plotbase.cz']
+    IGNORED_DOMAINS = ['plotbase.sk', 'plotbase.cz', 'plotbase.at', 'plotbase.de', 'plotbase.hu']
 
     for group in message_groups:
         # PRIMARY FILTER: Check group type
