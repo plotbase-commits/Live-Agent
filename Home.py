@@ -57,10 +57,14 @@ init_scheduler()
 display_status_sidebar()
 
 # --- Helper Functions ---
-def get_status_icon(score, has_critical):
-    """Returns status icon based on score and critical flag."""
-    if has_critical:
+def get_status_icon(score, critical_ratio):
+    """Returns status icon based on score and critical ratio."""
+    # Critical ratio thresholds override score
+    if critical_ratio > 0.10:  # More than 10% critical = always red
         return "🔴"
+    elif critical_ratio > 0.05:  # 5-10% critical = warning
+        return "⚠️"
+    # Otherwise use score
     elif score >= 80:
         return "✅"
     elif score >= 60:
@@ -68,16 +72,18 @@ def get_status_icon(score, has_critical):
     else:
         return "🔴"
 
-def get_status_color(score, has_critical):
-    """Returns color based on score."""
-    if has_critical:
-        return "#ff4b4b"
+def get_status_color(score, critical_ratio):
+    """Returns color based on score and critical ratio."""
+    if critical_ratio > 0.10:
+        return "#ff4b4b"  # Red
+    elif critical_ratio > 0.05:
+        return "#ffaa00"  # Orange
     elif score >= 80:
-        return "#00cc66"
+        return "#00cc66"  # Green
     elif score >= 60:
-        return "#ffaa00"
+        return "#ffaa00"  # Orange
     else:
-        return "#ff4b4b"
+        return "#ff4b4b"  # Red
 
 def load_agent_stats():
     """Load agent statistics from Raw_Tickets sheet."""
@@ -162,6 +168,7 @@ def load_agent_stats():
                     stats["criteria"][key] = 0
             
             stats["has_critical"] = stats["critical_count"] > 0
+            stats["critical_ratio"] = stats["critical_count"] / stats["tickets"] if stats["tickets"] > 0 else 0
         
         return agent_stats
     except Exception as e:
@@ -171,14 +178,15 @@ def load_agent_stats():
 def create_agent_card(agent_name, stats):
     """Create an agent card with stats."""
     score = stats.get("avg_score", 0)
-    has_critical = stats.get("has_critical", False)
     tickets = stats.get("tickets", 0)
     critical_count = stats.get("critical_count", 0)
+    critical_ratio = stats.get("critical_ratio", 0)
     criteria = stats.get("criteria", {})
     summaries = stats.get("summaries", [])
     
-    status_icon = get_status_icon(score, has_critical)
-    status_color = get_status_color(score, has_critical)
+    status_icon = get_status_icon(score, critical_ratio)
+    status_color = get_status_color(score, critical_ratio)
+    critical_pct = critical_ratio * 100
     
     with st.container():
         # Header
@@ -187,7 +195,7 @@ def create_agent_card(agent_name, stats):
                     border-radius: 12px; padding: 20px; margin-bottom: 10px;
                     border-left: 4px solid {status_color};">
             <h3 style="margin: 0; color: white;">{status_icon} {agent_name}</h3>
-            <p style="color: #888; margin: 5px 0;">Tickets: {tickets} | Critical: {critical_count}</p>
+            <p style="color: #888; margin: 5px 0;">Tickets: {tickets} | Critical: {critical_count} ({critical_pct:.0f}%)</p>
         </div>
         """, unsafe_allow_html=True)
         
