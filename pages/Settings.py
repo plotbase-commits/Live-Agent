@@ -2,7 +2,6 @@ import streamlit as st
 import os
 import json
 import threading
-import time
 from src.config import VAS_API_KLUC
 from src.sheets_manager import SheetSyncManager
 from src.backend import ETLService, AnalysisService, ArchivingService
@@ -19,47 +18,25 @@ def run_in_background(func, *args):
     thread.start()
     return thread
 
+def get_job_status_display(job_name):
+    """Returns status emoji and message for a specific job."""
+    statuses = get_status()
+    if job_name in statuses:
+        info = statuses[job_name]
+        status = info.get("status", "idle")
+        progress = info.get("progress", 0)
+        message = info.get("message", "")
+        updated = info.get("updated_at", "")
+        return status, progress, message, updated
+    return "idle", 0, "", ""
+
 # --- Config vars ---
 creds_file = "credentials.json"
 sheet_name = "LiveAgent Tickets"
 api_key = VAS_API_KLUC
 
 # ==========================================
-# JOB STATUS BAR (Auto-refresh with fragment)
-# ==========================================
-@st.fragment(run_every=2)
-def display_job_status():
-    statuses = get_status()
-    if statuses:
-        for job_name, info in statuses.items():
-            status = info.get("status", "idle")
-            progress = info.get("progress", 0)
-            message = info.get("message", "")
-            updated = info.get("updated_at", "")
-            
-            col_a, col_b = st.columns([1, 4])
-            with col_a:
-                if status == "running":
-                    st.markdown(f"**{job_name}** 🟢")
-                elif status == "completed":
-                    st.markdown(f"**{job_name}** ✅")
-                elif status == "error":
-                    st.markdown(f"**{job_name}** ❌")
-                else:
-                    st.markdown(f"**{job_name}** ⚪")
-            with col_b:
-                if status == "running":
-                    st.progress(progress / 100)
-                st.caption(f"{message} ({updated})" if updated else message)
-    else:
-        st.info("Žiadne aktívne joby")
-
-st.header("📊 Job Status")
-display_job_status()
-st.markdown("---")
-
-# ==========================================
-# TABS (3 tabs now - logs moved to manual)
+# TABS
 # ==========================================
 tab_manual, tab_scheduler, tab_config = st.tabs([
     "🎮 Manual Controls", 
@@ -71,86 +48,109 @@ tab_manual, tab_scheduler, tab_config = st.tabs([
 # TAB 1: MANUAL CONTROLS + LOGS
 # ==========================================
 with tab_manual:
-    col_etl, col_ai = st.columns(2)
     
-    with col_etl:
-        with st.container(border=True):
-            st.subheader("📥 ETL Pipeline")
-            st.caption("Stiahne nové tikety z LiveAgent do Raw_Tickets")
-            if st.button("▶️ Run ETL", use_container_width=True, key="btn_etl"):
-                if not os.path.exists(creds_file):
-                    st.error("Credentials file not found.")
-                else:
-                    def etl_task():
-                        try:
-                            sm = SheetSyncManager(creds_file, sheet_name, None, None)
-                            etl = ETLService(api_key, sm)
-                            etl.run_etl_cycle()
-                        except Exception as e:
-                            add_log(f"ETL Error: {e}")
-                    run_in_background(etl_task)
-                    st.success("✅ ETL spustený na pozadí!")
-
-    with col_ai:
-        with st.container(border=True):
-            st.subheader("🤖 AI Analysis")
-            st.caption("Analyzuje nespracované tikety pomocou AI")
-            if st.button("▶️ Run Analysis", use_container_width=True, key="btn_ai"):
-                if not os.path.exists(creds_file):
-                    st.error("Credentials file not found.")
-                else:
-                    qa, alert = "", ""
-                    if os.path.exists("prompts.json"):
-                        with open("prompts.json", "r") as f:
-                            data = json.load(f)
-                            qa = data.get("qa_prompt", "")
-                            alert = data.get("alert_prompt", "")
-                    
-                    def analysis_task():
-                        try:
-                            sm = SheetSyncManager(creds_file, sheet_name, None, None)
-                            svc = AnalysisService(sm, qa, alert)
-                            svc.run_analysis_cycle()
-                        except Exception as e:
-                            add_log(f"Analysis Error: {e}")
-                    run_in_background(analysis_task)
-                    st.success("✅ AI Analysis spustený na pozadí!")
-
-    col_stats, col_archive = st.columns(2)
-
-    with col_stats:
-        with st.container(border=True):
-            st.subheader("📈 Daily Stats")
-            st.caption("Agreguje denné štatistiky agentov")
-            if st.button("▶️ Run Stats", use_container_width=True, key="btn_stats"):
-                with st.spinner("Agregácia..."):
-                    try:
-                        sm = SheetSyncManager(creds_file, sheet_name, None, None)
-                        svc = AnalysisService(sm, "", "")
-                        svc.run_daily_aggregation()
-                        st.success("✅ Hotovo!")
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-
-    with col_archive:
-        with st.container(border=True):
-            st.subheader("🗄️ Archiving")
-            st.caption("Presunie staré tikety do mesačných archívov")
-            if st.button("▶️ Run Archive", use_container_width=True, key="btn_archive"):
-                with st.spinner("Archivácia..."):
-                    try:
-                        sm = SheetSyncManager(creds_file, sheet_name, None, None)
-                        svc = ArchivingService(sm)
-                        svc.run_archiving()
-                        st.success("✅ Hotovo!")
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-
-    st.markdown("---")
-    
-    # JOB LOGS (auto-refresh, newest first)
     @st.fragment(run_every=2)
-    def display_logs_realtime():
+    def manual_controls_fragment():
+        col_etl, col_ai = st.columns(2)
+        
+        with col_etl:
+            with st.container(border=True):
+                st.subheader("📥 ETL Pipeline")
+                
+                # Status for ETL
+                status, progress, message, updated = get_job_status_display("ETL")
+                if status == "running":
+                    st.progress(progress / 100)
+                    st.caption(f"🟢 {message} ({updated})")
+                elif status == "completed":
+                    st.caption(f"✅ {message}")
+                elif status == "error":
+                    st.caption(f"❌ {message}")
+                
+                st.caption("Stiahne nové tikety z LiveAgent do Raw_Tickets")
+                if st.button("▶️ Run ETL", use_container_width=True, key="btn_etl"):
+                    if not os.path.exists(creds_file):
+                        st.error("Credentials file not found.")
+                    else:
+                        def etl_task():
+                            try:
+                                sm = SheetSyncManager(creds_file, sheet_name, None, None)
+                                etl = ETLService(api_key, sm)
+                                etl.run_etl_cycle()
+                            except Exception as e:
+                                add_log(f"ETL Error: {e}")
+                        run_in_background(etl_task)
+                        st.success("✅ ETL spustený!")
+
+        with col_ai:
+            with st.container(border=True):
+                st.subheader("🤖 AI Analysis")
+                
+                # Status for Analysis
+                status, progress, message, updated = get_job_status_display("Analysis")
+                if status == "running":
+                    st.progress(progress / 100)
+                    st.caption(f"🟢 {message} ({updated})")
+                elif status == "completed":
+                    st.caption(f"✅ {message}")
+                elif status == "error":
+                    st.caption(f"❌ {message}")
+                
+                st.caption("Analyzuje nespracované tikety pomocou AI")
+                if st.button("▶️ Run Analysis", use_container_width=True, key="btn_ai"):
+                    if not os.path.exists(creds_file):
+                        st.error("Credentials file not found.")
+                    else:
+                        qa, alert = "", ""
+                        if os.path.exists("prompts.json"):
+                            with open("prompts.json", "r") as f:
+                                data = json.load(f)
+                                qa = data.get("qa_prompt", "")
+                                alert = data.get("alert_prompt", "")
+                        
+                        def analysis_task():
+                            try:
+                                sm = SheetSyncManager(creds_file, sheet_name, None, None)
+                                svc = AnalysisService(sm, qa, alert)
+                                svc.run_analysis_cycle()
+                            except Exception as e:
+                                add_log(f"Analysis Error: {e}")
+                        run_in_background(analysis_task)
+                        st.success("✅ AI Analysis spustený!")
+
+        col_stats, col_archive = st.columns(2)
+
+        with col_stats:
+            with st.container(border=True):
+                st.subheader("📈 Daily Stats")
+                st.caption("Agreguje denné štatistiky agentov")
+                if st.button("▶️ Run Stats", use_container_width=True, key="btn_stats"):
+                    with st.spinner("Agregácia..."):
+                        try:
+                            sm = SheetSyncManager(creds_file, sheet_name, None, None)
+                            svc = AnalysisService(sm, "", "")
+                            svc.run_daily_aggregation()
+                            st.success("✅ Hotovo!")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+
+        with col_archive:
+            with st.container(border=True):
+                st.subheader("🗄️ Archiving")
+                st.caption("Presunie staré tikety do mesačných archívov")
+                if st.button("▶️ Run Archive", use_container_width=True, key="btn_archive"):
+                    with st.spinner("Archivácia..."):
+                        try:
+                            sm = SheetSyncManager(creds_file, sheet_name, None, None)
+                            svc = ArchivingService(sm)
+                            svc.run_archiving()
+                            st.success("✅ Hotovo!")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+
+        st.markdown("---")
+        
+        # JOB LOGS (newest first)
         col1, col2 = st.columns([4, 1])
         with col1:
             st.subheader("📋 Job Logs")
@@ -188,7 +188,7 @@ with tab_manual:
         
         st.markdown(f'<div class="log-container">{logs_reversed}</div>', unsafe_allow_html=True)
     
-    display_logs_realtime()
+    manual_controls_fragment()
 
 # ==========================================
 # TAB 2: SCHEDULER
