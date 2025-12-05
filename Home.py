@@ -1,0 +1,227 @@
+import streamlit as st
+import json
+import os
+from datetime import datetime
+import plotly.express as px
+import plotly.graph_objects as go
+import pandas as pd
+from src.job_status import display_status_sidebar
+
+st.set_page_config(page_title="QA Dashboard", layout="wide", page_icon="📊")
+
+# Display background job status in sidebar
+display_status_sidebar()
+
+# --- Helper Functions ---
+def get_status_icon(score, has_critical):
+    """Returns status icon based on score and critical flag."""
+    if has_critical:
+        return "🔴"
+    elif score >= 80:
+        return "✅"
+    elif score >= 60:
+        return "⚠️"
+    else:
+        return "🔴"
+
+def get_status_color(score, has_critical):
+    """Returns color based on score."""
+    if has_critical:
+        return "#ff4b4b"
+    elif score >= 80:
+        return "#00cc66"
+    elif score >= 60:
+        return "#ffaa00"
+    else:
+        return "#ff4b4b"
+
+def load_agent_stats():
+    """Load agent statistics from Raw_Tickets sheet."""
+    try:
+        import gspread
+        from google.oauth2.service_account import Credentials
+        
+        SCOPES = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        
+        creds_file = "credentials.json"
+        if not os.path.exists(creds_file):
+            return {}
+        
+        credentials = Credentials.from_service_account_file(creds_file, scopes=SCOPES)
+        client = gspread.authorize(credentials)
+        
+        spreadsheet = client.open("LiveAgent Tickets")
+        
+        try:
+            ws = spreadsheet.worksheet("Raw_Tickets")
+        except:
+            return {}
+        
+        data = ws.get_all_records()
+        
+        # Aggregate by agent
+        agent_stats = {}
+        for row in data:
+            agent = row.get("Agent", "Unknown")
+            if not agent or agent == "Unknown":
+                continue
+            
+            if agent not in agent_stats:
+                agent_stats[agent] = {
+                    "tickets": 0,
+                    "total_score": 0,
+                    "critical_count": 0,
+                    "criteria": {"empathy": [], "expertise": [], "problem_solving": [], "error_rate": []},
+                    "summaries": []
+                }
+            
+            agent_stats[agent]["tickets"] += 1
+            
+            # Parse QA data
+            qa_data_str = row.get("QA_Data", "")
+            if qa_data_str:
+                try:
+                    qa_data = json.loads(qa_data_str)
+                    score = qa_data.get("overall_score", 0)
+                    agent_stats[agent]["total_score"] += score
+                    
+                    criteria = qa_data.get("criteria", {})
+                    for key in ["empathy", "expertise", "problem_solving", "error_rate"]:
+                        if key in criteria:
+                            agent_stats[agent]["criteria"][key].append(criteria[key])
+                    
+                    summary = qa_data.get("verbal_summary", "")
+                    if summary:
+                        agent_stats[agent]["summaries"].append(summary)
+                except:
+                    pass
+            
+            # Check critical
+            if str(row.get("Is_Critical", "")).upper() == "TRUE":
+                agent_stats[agent]["critical_count"] += 1
+        
+        # Calculate averages
+        for agent in agent_stats:
+            stats = agent_stats[agent]
+            if stats["tickets"] > 0:
+                stats["avg_score"] = stats["total_score"] / stats["tickets"]
+            else:
+                stats["avg_score"] = 0
+            
+            for key in stats["criteria"]:
+                if stats["criteria"][key]:
+                    stats["criteria"][key] = sum(stats["criteria"][key]) / len(stats["criteria"][key])
+                else:
+                    stats["criteria"][key] = 0
+            
+            stats["has_critical"] = stats["critical_count"] > 0
+        
+        return agent_stats
+    except Exception as e:
+        st.error(f"Error loading stats: {e}")
+        return {}
+
+def create_agent_card(agent_name, stats):
+    """Create an agent card with stats."""
+    score = stats.get("avg_score", 0)
+    has_critical = stats.get("has_critical", False)
+    tickets = stats.get("tickets", 0)
+    critical_count = stats.get("critical_count", 0)
+    criteria = stats.get("criteria", {})
+    summaries = stats.get("summaries", [])
+    
+    status_icon = get_status_icon(score, has_critical)
+    status_color = get_status_color(score, has_critical)
+    
+    with st.container():
+        # Header
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%); 
+                    border-radius: 12px; padding: 20px; margin-bottom: 10px;
+                    border-left: 4px solid {status_color};">
+            <h3 style="margin: 0; color: white;">{status_icon} {agent_name}</h3>
+            <p style="color: #888; margin: 5px 0;">Tickets: {tickets} | Critical: {critical_count}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Score progress bar
+        st.progress(int(score) / 100)
+        st.markdown(f"**Overall Score: {score:.0f}%**")
+        
+        # Criteria bar chart
+        if any(criteria.values()):
+            fig = go.Figure(data=[
+                go.Bar(
+                    x=list(criteria.keys()),
+                    y=list(criteria.values()),
+                    marker_color=['#4CAF50', '#2196F3', '#FF9800', '#9C27B0']
+                )
+            ])
+            fig.update_layout(
+                height=200,
+                margin=dict(l=20, r=20, t=20, b=20),
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                yaxis=dict(range=[0, 100], gridcolor='#333'),
+                xaxis=dict(tickfont=dict(size=10))
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # Summary expander
+        with st.expander("📝 Latest Summary"):
+            if summaries:
+                st.write(summaries[-1])
+            else:
+                st.write("No summary available yet.")
+
+# --- Main Dashboard ---
+st.title("📊 QA Dashboard")
+
+# Last sync info
+col_title, col_sync = st.columns([3, 1])
+with col_sync:
+    st.caption(f"Last update: {datetime.now().strftime('%H:%M')}")
+    if st.button("🔄 Refresh"):
+        st.rerun()
+
+# Load data
+with st.spinner("Loading agent statistics..."):
+    agent_stats = load_agent_stats()
+
+if not agent_stats:
+    st.info("No agent data available yet. Run ETL and AI Analysis first from the Settings page.")
+    st.page_link("pages/Settings.py", label="⚙️ Go to Settings", icon="⚙️")
+else:
+    # Summary metrics
+    st.markdown("---")
+    total_agents = len(agent_stats)
+    total_tickets = sum(s["tickets"] for s in agent_stats.values())
+    total_critical = sum(s["critical_count"] for s in agent_stats.values())
+    avg_score = sum(s["avg_score"] for s in agent_stats.values()) / total_agents if total_agents > 0 else 0
+    
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("👥 Agents", total_agents)
+    m2.metric("🎫 Tickets Analyzed", total_tickets)
+    m3.metric("🔴 Critical Issues", total_critical)
+    m4.metric("📈 Avg Score", f"{avg_score:.0f}%")
+    
+    st.markdown("---")
+    
+    # Agent Cards Grid (2x4)
+    agents = list(agent_stats.keys())
+    
+    # Create rows of 4 agents
+    for i in range(0, len(agents), 4):
+        cols = st.columns(4)
+        for j, col in enumerate(cols):
+            if i + j < len(agents):
+                agent = agents[i + j]
+                with col:
+                    create_agent_card(agent, agent_stats[agent])
+
+# --- Footer ---
+st.markdown("---")
+st.caption("QA Dashboard v1.0 | Powered by Gemini AI")
