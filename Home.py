@@ -122,6 +122,7 @@ def load_agent_stats():
             if agent not in agent_stats:
                 agent_stats[agent] = {
                     "tickets": 0,
+                    "analyzed_tickets": 0,  # NEW: Only tickets with QA_Data
                     "total_score": 0,
                     "critical_count": 0,
                     "criteria": {"empathy": [], "expertise": [], "problem_solving": [], "error_rate": []},
@@ -137,6 +138,7 @@ def load_agent_stats():
                     qa_data = json.loads(qa_data_str)
                     score = qa_data.get("overall_score", 0)
                     agent_stats[agent]["total_score"] += score
+                    agent_stats[agent]["analyzed_tickets"] += 1  # NEW: Count analyzed
                     
                     criteria = qa_data.get("criteria", {})
                     for key in ["empathy", "expertise", "problem_solving", "error_rate"]:
@@ -156,8 +158,9 @@ def load_agent_stats():
         # Calculate averages
         for agent in agent_stats:
             stats = agent_stats[agent]
-            if stats["tickets"] > 0:
-                stats["avg_score"] = stats["total_score"] / stats["tickets"]
+            # FIX: Divide by analyzed_tickets, not all tickets
+            if stats["analyzed_tickets"] > 0:
+                stats["avg_score"] = stats["total_score"] / stats["analyzed_tickets"]
             else:
                 stats["avg_score"] = 0
             
