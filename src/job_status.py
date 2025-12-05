@@ -55,10 +55,12 @@ def add_log(message):
         f.writelines(logs)
 
 def get_logs():
-    """Returns all logs."""
+    """Returns all logs (newest first)."""
     if os.path.exists(LOG_FILE):
         with open(LOG_FILE, "r") as f:
-            return f.read()
+            lines = f.readlines()
+            # Reverse to show newest first
+            return "".join(reversed(lines))
     return "No logs yet."
 
 def clear_logs():
@@ -75,7 +77,7 @@ def clear_status(job_name):
             json.dump(all_status, f, indent=2)
 
 def display_status_sidebar():
-    """Displays job status in Streamlit sidebar."""
+    """Displays job status in Streamlit sidebar with auto-refresh."""
     import streamlit as st
     
     statuses = get_status()
@@ -85,6 +87,9 @@ def display_status_sidebar():
     
     st.sidebar.markdown("---")
     st.sidebar.subheader("🔄 Background Jobs")
+    
+    # Check if any job is running
+    any_running = any(info.get("status") == "running" for info in statuses.values())
     
     for job_name, info in statuses.items():
         status = info.get("status", "idle")
@@ -102,6 +107,18 @@ def display_status_sidebar():
         elif status == "error":
             st.sidebar.markdown(f"**{job_name}** ❌ Error")
             st.sidebar.caption(f"{message}")
+    
+    # Show refresh button and auto-refresh hint
+    if any_running:
+        st.sidebar.caption("⏳ Job is running...")
+        if st.sidebar.button("🔄 Refresh Status", key="refresh_status"):
+            st.rerun()
+        
+        # Auto-refresh using meta tag (works in Streamlit)
+        st.markdown(
+            '<meta http-equiv="refresh" content="5">',
+            unsafe_allow_html=True
+        )
 
 def display_log_window():
     """Displays scrollable log window."""

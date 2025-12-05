@@ -212,7 +212,7 @@ class AnalysisService:
                     is_critical = str(alert_data.get("is_critical", False)).upper()
                     alert_reason = alert_data.get("reason", "") or ""
                     qa_score = qa_data.get("overall_score", 0)
-                    qa_json = json.dumps(qa_data)
+                    qa_json = json.dumps(qa_data, ensure_ascii=False)
                     
                     row_num = i + 1
                     
