@@ -5,9 +5,53 @@ from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
-from src.job_status import display_status_sidebar
+from src.job_status import display_status_sidebar, add_log
+from src.scheduler import SchedulerService
 
 st.set_page_config(page_title="QA Dashboard", layout="wide", page_icon="📊")
+
+# --- AUTO-START SCHEDULER ---
+@st.cache_resource
+def init_scheduler():
+    """Initialize and start scheduler with default jobs."""
+    from src.sheets_manager import SheetSyncManager
+    from src.backend import ETLService, AnalysisService
+    from src.config import VAS_API_KLUC
+    
+    scheduler = SchedulerService()
+    
+    # Only add jobs if not already present
+    if not scheduler.get_scheduler().get_job("etl_job"):
+        def etl_job():
+            try:
+                sm = SheetSyncManager("credentials.json", "LiveAgent Tickets", None, None)
+                etl = ETLService(VAS_API_KLUC, sm)
+                etl.run_etl_cycle()
+            except Exception as e:
+                add_log(f"ETL Error: {e}")
+        
+        def analysis_job():
+            try:
+                qa, alert = "", ""
+                if os.path.exists("prompts.json"):
+                    with open("prompts.json", "r") as f:
+                        d = json.load(f)
+                        qa = d.get("qa_prompt", "")
+                        alert = d.get("alert_prompt", "")
+                sm = SheetSyncManager("credentials.json", "LiveAgent Tickets", None, None)
+                svc = AnalysisService(sm, qa, alert)
+                svc.run_analysis_cycle()
+            except Exception as e:
+                add_log(f"Analysis Error: {e}")
+        
+        scheduler.add_etl_job(etl_job)
+        scheduler.add_analysis_job(analysis_job)
+        add_log("Scheduler auto-started with ETL and Analysis jobs")
+    
+    return scheduler
+
+# Initialize scheduler on app load
+init_scheduler()
 
 # Display background job status in sidebar
 display_status_sidebar()
