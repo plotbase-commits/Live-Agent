@@ -104,19 +104,80 @@ class SheetSyncManager:
         except gspread.WorksheetNotFound:
             return set()
 
-    def append_raw_tickets(self, tickets_data):
+    def upsert_raw_tickets(self, tickets_data):
         """
-        Appends new tickets to Raw_Tickets sheet.
-        tickets_data: list of lists matching raw_tickets_headers
+        Upserts tickets to Raw_Tickets sheet.
+        Key: (Ticket_ID, Agent)
+        - If exists: update entire row
+        - If not exists: append new row
+        
+        Uses batch read/write for performance.
+        tickets_data: list of lists [Ticket_ID, Link, Agent, Date_Changed, ...]
         """
         if not tickets_data:
             return
             
         try:
             ws = self.spreadsheet.worksheet("Raw_Tickets")
-            ws.append_rows(tickets_data)
+            
+            # 1. Batch read all existing data
+            all_data = ws.get_all_values()
+            if not all_data:
+                # Empty sheet, just append with headers
+                headers = [
+                    "Ticket_ID", "Link", "Agent", "Date_Changed", "Date_Created", 
+                    "Transcript", "AI_Processed", "Is_Critical", "QA_Score", 
+                    "QA_Data", "Alert_Reason"
+                ]
+                ws.append_row(headers)
+                ws.append_rows(tickets_data)
+                ws.freeze(rows=1)
+                return
+            
+            headers = all_data[0]
+            existing_rows = all_data[1:]
+            
+            # 2. Build index: (ticket_id, agent) -> row_index
+            existing_keys = {}
+            for idx, row in enumerate(existing_rows):
+                if len(row) >= 3:
+                    key = (row[0], row[2])  # (Ticket_ID, Agent)
+                    existing_keys[key] = idx
+            
+            # 3. Process new tickets
+            updated_rows = list(existing_rows)  # Copy existing
+            new_rows = []
+            
+            for ticket_row in tickets_data:
+                if len(ticket_row) >= 3:
+                    key = (ticket_row[0], ticket_row[2])  # (Ticket_ID, Agent)
+                    
+                    if key in existing_keys:
+                        # UPDATE: replace the row
+                        idx = existing_keys[key]
+                        updated_rows[idx] = ticket_row
+                    else:
+                        # INSERT: add new row
+                        new_rows.append(ticket_row)
+                        existing_keys[key] = len(updated_rows) + len(new_rows) - 1
+            
+            # 4. Batch write - combine updated + new
+            final_rows = updated_rows + new_rows
+            
+            # 5. Rewrite entire sheet
+            ws.clear()
+            ws.update("A1", [headers] + final_rows)
+            ws.freeze(rows=1)
+            
         except Exception as e:
-            st.error(f"Error appending to Raw_Tickets: {e}")
+            st.error(f"Error upserting to Raw_Tickets: {e}")
+
+    def append_raw_tickets(self, tickets_data):
+        """
+        DEPRECATED: Use upsert_raw_tickets instead.
+        Kept for backward compatibility.
+        """
+        self.upsert_raw_tickets(tickets_data)
 
     def archive_rows_to_month(self, month_str, rows):
         """Appends rows to a specific monthly sheet (YYYY-MM)."""

@@ -58,16 +58,14 @@ class ETLService:
             # 1. Ensure Sheets Exist
             self.sheet_manager.ensure_qa_sheets()
             
-            # 2. Get Existing IDs
-            existing_ids = self.sheet_manager.get_raw_tickets_ids()
-            st.write(f"Found {len(existing_ids)} existing tickets in Raw_Tickets.")
-            
-            # 3. Fetch Metadata (Agents/Users)
+            # 2. Fetch Metadata (Agents/Users)
             agents_map = get_agents(self.api_key)
             users_map = get_users(self.api_key)
             
-            # 4. Fetch New Tickets (Last 100)
-            new_tickets_data = []
+            # 3. Fetch Tickets (Last 100) - upsert handles duplicates
+            tickets_data = []
+            processed_keys = set()  # Track (ticket_id, agent) to avoid duplicates in this cycle
+            
             set_status("ETL", "running", 20, "Fetching tickets...")
             
             for page in range(1, 6):
@@ -81,14 +79,20 @@ class ETLService:
                 for ticket in tickets:
                     ticket_id = str(ticket.get('id'))
                     
-                    # Skip if already exists
-                    if ticket_id in existing_ids:
+                    # Get agent
+                    agentid = ticket.get('agentid')
+                    agent_name = agents_map.get(agentid, 'Nepriradený') if agentid else 'Nepriradený'
+                    
+                    # Skip "Nepriradený" - no agent assigned
+                    if agent_name == 'Nepriradený':
                         continue
                     
-                    # Skip if already processed in this cycle
-                    if any(t[0] == ticket_id for t in new_tickets_data):
+                    # Skip duplicates in this cycle (same ticket+agent)
+                    key = (ticket_id, agent_name)
+                    if key in processed_keys:
                         continue
-
+                    processed_keys.add(key)
+                    
                     # Fetch Transcript
                     time.sleep(0.1)
                     messages = get_ticket_messages(self.api_key, ticket_id)
@@ -100,13 +104,9 @@ class ETLService:
 
                     transcript = process_transcript(messages, agents_map, users_map)
                     
-                    # Prepare Row
-                    # Use ticket.agentid from API (currently assigned agent - more accurate)
-                    agentid = ticket.get('agentid')
-                    agent_name = agents_map.get(agentid, 'Nepriradený') if agentid else 'Nepriradený'
-                    
                     ticket_link = f"{LIVEAGENT_AGENT_URL}/#Conversation;id={ticket_id}"
                     
+                    # Row with AI_Processed=FALSE (will be re-evaluated if updated)
                     row = [
                         ticket_id,
                         ticket_link,
@@ -114,29 +114,29 @@ class ETLService:
                         convert_utc_to_local(ticket.get('date_changed')),
                         convert_utc_to_local(ticket.get('date_created')),
                         transcript,
-                        "FALSE",
-                        "FALSE",
-                        "",
-                        "",
-                        ""
+                        "FALSE",  # AI_Processed - reset to trigger re-evaluation
+                        "FALSE",  # Is_Critical
+                        "",       # QA_Score
+                        "",       # QA_Data
+                        ""        # Alert_Reason
                     ]
                     
-                    new_tickets_data.append(row)
-                    add_log(f"ETL: Added ticket {ticket_id} ({agent_name})")
+                    tickets_data.append(row)
+                    add_log(f"ETL: Processed ticket {ticket_id} ({agent_name})")
                 
                 # Rate limit between pages
                 time.sleep(0.5)
             
-            # 5. Save to Sheet
-            if new_tickets_data:
-                set_status("ETL", "running", 90, f"Saving {len(new_tickets_data)} tickets...")
-                st.write(f"Saving {len(new_tickets_data)} new tickets to Raw_Tickets...")
-                self.sheet_manager.append_raw_tickets(new_tickets_data)
-                set_status("ETL", "completed", 100, f"Done! {len(new_tickets_data)} new tickets.")
+            # 4. Save to Sheet (upsert handles duplicates)
+            if tickets_data:
+                set_status("ETL", "running", 90, f"Saving {len(tickets_data)} tickets...")
+                st.write(f"Upserting {len(tickets_data)} tickets to Raw_Tickets...")
+                self.sheet_manager.upsert_raw_tickets(tickets_data)
+                set_status("ETL", "completed", 100, f"Done! {len(tickets_data)} tickets processed.")
                 st.success("ETL Cycle Completed Successfully.")
             else:
-                set_status("ETL", "completed", 100, "No new tickets found.")
-                st.info("No new tickets found.")
+                set_status("ETL", "completed", 100, "No tickets to process.")
+                st.info("No tickets to process.")
                 
         except Exception as e:
             set_status("ETL", "error", 0, str(e))
@@ -397,7 +397,9 @@ class ArchivingService:
 
     def run_archiving(self):
         """
-        Moves tickets older than 2 days from Raw_Tickets to monthly archive sheets.
+        Moves tickets from other months to Archive_{YYYY-MM}.
+        Deletes 'Nepriradený' rows.
+        Deletes archive sheets older than 12 months.
         """
         st.write("Starting Archiving Process...")
         
@@ -418,54 +420,87 @@ class ArchivingService:
             
             try:
                 idx_date = headers.index("Date_Changed")
-            except ValueError:
-                st.error("Column 'Date_Changed' not found.")
+                idx_agent = headers.index("Agent")
+            except ValueError as e:
+                st.error(f"Required column not found: {e}")
                 return
 
-            from datetime import datetime, timedelta
+            from datetime import datetime
             
-            cutoff_date = datetime.now() - timedelta(days=2)
+            current_month = datetime.now().strftime("%Y-%m")
             
             rows_to_keep = []
-            archive_batches = {} # Key: "YYYY-MM", Value: [rows]
-            
+            archive_batches = {}  # Key: "YYYY-MM", Value: [rows]
             archived_count = 0
+            deleted_nepriradeny = 0
             
             for row in data_rows:
-                date_str = row[idx_date]
-                should_archive = False
+                date_str = row[idx_date] if idx_date < len(row) else ""
+                agent = row[idx_agent] if idx_agent < len(row) else ""
+                
+                # Delete "Nepriradený" rows
+                if agent == "Nepriradený" or not agent:
+                    deleted_nepriradeny += 1
+                    continue
                 
                 try:
-                    # Parse date (Format: YYYY-MM-DD HH:MM:SS)
-                    ticket_date = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+                    # Get month from date (Format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)
+                    row_month = date_str[:7]  # "YYYY-MM"
                     
-                    if ticket_date < cutoff_date:
-                        should_archive = True
-                        month_key = ticket_date.strftime("%Y-%m")
-                        
-                        if month_key not in archive_batches:
-                            archive_batches[month_key] = []
-                        archive_batches[month_key].append(row)
+                    if row_month != current_month:
+                        # Archive to that month
+                        if row_month not in archive_batches:
+                            archive_batches[row_month] = []
+                        archive_batches[row_month].append(row)
                         archived_count += 1
+                    else:
+                        # Keep in Raw_Tickets (current month)
+                        rows_to_keep.append(row)
                 except:
                     # If date parse fails, keep it in Raw (safe fallback)
-                    pass
-                
-                if not should_archive:
                     rows_to_keep.append(row)
             
-            # 1. Write to Archives
+            # 1. Write to Monthly Archives
             for month, rows in archive_batches.items():
-                st.write(f"Archiving {len(rows)} tickets to sheet '{month}'...")
-                self.sheet_manager.archive_rows_to_month(month, rows)
+                archive_sheet_name = f"Archive_{month}"
+                st.write(f"Archiving {len(rows)} tickets to '{archive_sheet_name}'...")
+                self.sheet_manager.archive_rows_to_month(archive_sheet_name, rows)
             
-            # 2. Update Raw_Tickets (Delete archived)
-            if archived_count > 0:
-                st.write(f"Removing {archived_count} archived tickets from Raw_Tickets...")
+            # 2. Update Raw_Tickets
+            if archived_count > 0 or deleted_nepriradeny > 0:
+                st.write(f"Updating Raw_Tickets (keeping {len(rows_to_keep)} current month rows)...")
                 self.sheet_manager.rewrite_raw_tickets(rows_to_keep)
-                st.success(f"Archiving Complete. Moved {archived_count} tickets.")
-            else:
-                st.info("No tickets older than 2 days found.")
+                
+            # 3. Cleanup old archives (older than 12 months)
+            self._cleanup_old_archives()
+            
+            # Summary
+            st.success(f"Archiving Complete: {archived_count} archived, {deleted_nepriradeny} 'Nepriradený' deleted.")
                 
         except Exception as e:
             st.error(f"Error in Archiving: {e}")
+    
+    def _cleanup_old_archives(self):
+        """Delete archive sheets older than 12 months."""
+        from datetime import datetime
+        
+        current_date = datetime.now()
+        worksheets = self.sheet_manager.spreadsheet.worksheets()
+        
+        for ws in worksheets:
+            title = ws.title
+            # Match format Archive_YYYY-MM
+            if title.startswith("Archive_"):
+                try:
+                    month_str = title.replace("Archive_", "")
+                    sheet_date = datetime.strptime(month_str, "%Y-%m")
+                    
+                    # Calculate age in months
+                    age_months = (current_date.year - sheet_date.year) * 12 + (current_date.month - sheet_date.month)
+                    
+                    if age_months > 12:
+                        st.write(f"Deleting old archive: {title}")
+                        self.sheet_manager.spreadsheet.del_worksheet(ws)
+                except:
+                    continue
+
