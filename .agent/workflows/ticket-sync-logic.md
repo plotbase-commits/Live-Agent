@@ -2,210 +2,155 @@
 description: Logika sťahovania tiketov z LiveAgent do Google Sheets
 ---
 
-# LiveAgent Ticket Sync - Logika filtrovania
+# Ticket Sync Logic (ETL)
 
 ## Prehľad
 
-Aplikácia sťahuje tikety z LiveAgent API a ukladá ich do Google Sheets. Používa inteligentnú logiku filtrovania založenú na **type skupiny správ (group type)** a **doméne odosielateľa**.
+ETL proces sťahuje tikety z LiveAgent API a ukladá ich do Google Sheets pomocou **upsert** logiky.
 
 ---
 
-## 1. Typy správ (Message Group Types) - PRIMÁRNY FILTER
+## 1. Spúšťanie
 
-LiveAgent API vracia správy v "skupinách" (groups). Každá skupina má `type`.
+| Trigger | Čas |
+|---------|-----|
+| Automaticky | Po-Pi, 7:30-18:30, každú hodinu o :30 |
+| Manuálne | Settings → Manual Controls → Run ETL |
 
-### 1.1 Komunikačné typy (zahŕňame do transkriptu) ✅
+---
 
-| Type | Názov | Popis |
-|------|-------|-------|
-| `3` | Incoming Email (nový tiket) | Zákazník vytvoril tiket emailom |
-| `4` | Outgoing Email | Agent odpovedal zákazníkovi |
-| `5` | Offline | Zákazník cez kontaktný formulár |
-| `7` | Incoming Email (odpoveď) | Zákazník odpovedal na email |
+## 2. Upsert logika
 
-### 1.2 Systémové typy (IGNORUJEME) ❌
+### Kľúč
+```
+(Ticket_ID, Agent) = unikátny kľúč
+```
 
-| Type | Názov | Popis |
-|------|-------|-------|
-| `I` | Internal | Interná notifikácia (SLA, polia) |
-| `T` | Transfer | Priradenie/preradenie tiketu |
-| `G` | Tag | Pridanie značky |
-| `R` | Resolve | Vyriešenie tiketu |
+### Pravidlá
+```
+1. Ak existuje riadok s rovnakým (Ticket_ID, Agent):
+   → UPDATE celý riadok
+   → AI_Processed = FALSE (trigger re-evaluation)
 
-### 1.3 Kategorizácia v kóde (`src/utils.py`)
+2. Ak neexistuje:
+   → INSERT nový riadok
+```
+
+### Prečo (Ticket_ID, Agent)?
+
+**Scenár:** Tiket preradený na iného agenta
+```
+10:00 - Tiket ABC → Agent Adam → Hodnotenie 80
+14:00 - Tiket preradený → Agent Boris
+15:00 - ETL: (ABC, Boris) neexistuje → INSERT
+
+Výsledok:
+Row 1: ABC | Adam  | Score 80  (zachované!)
+Row 2: ABC | Boris | AI=FALSE  (nové hodnotenie)
+```
+
+**Scenár:** Tiket späť u pôvodného agenta
+```
+16:00 - Tiket ABC späť → Agent Adam
+17:00 - ETL: (ABC, Adam) existuje → UPDATE
+
+Výsledok:
+Row 1: ABC | Adam | AI=FALSE (prepísané, re-evaluate)
+Row 2: ABC | Boris | Score 70 (zachované!)
+```
+
+---
+
+## 3. Filtrovanie tiketov
+
+### 3.1 Skip "Nepriradený"
+```python
+if agent_name == 'Nepriradený':
+    continue  # Skip
+```
+
+### 3.2 Human Interaction Check
+```python
+if not is_human_interaction(messages, agents_map):
+    continue  # Skip
+```
+
+### 3.3 SYSTEM_SENDERS Blacklist
+Tikety od týchto odosielateľov sú ignorované:
+
+| Kategória | Príklady |
+|-----------|----------|
+| Vlastné domény | plotbase.sk, plotbase.cz |
+| Platobné brány | payu.com, gopay.cz, stripe.com |
+| Dopravcovia | dhl.com, dpd.sk, packeta.com |
+| Partneri | justprint.sk |
+| No-reply | no-reply@, noreply@, notification@ |
+
+---
+
+## 4. Batch spracovanie
 
 ```python
-# Komunikačné typy (human interaction)
-COMMUNICATION_TYPES = {'3', '4', '5', '7'}
+# 1. Batch read všetkých existujúcich riadkov
+all_data = ws.get_all_values()
 
-# Systémové typy sú AUTOMATICKY PRESKOČENÉ
-# ak group_type not in COMMUNICATION_TYPES -> skip
+# 2. Build index (Ticket_ID, Agent) → row_index
+existing_keys = {(row[0], row[2]): idx for idx, row in enumerate(existing_rows)}
+
+# 3. Process v pamäti
+for ticket in new_tickets:
+    if key in existing_keys:
+        updated_rows[idx] = ticket  # UPDATE
+    else:
+        new_rows.append(ticket)  # INSERT
+
+# 4. Batch write
+ws.clear()
+ws.update("A1", [headers] + updated_rows + new_rows)
 ```
+
+**Výhoda:** 2 API calls namiesto 2×N
 
 ---
 
-## 2. Filtrovanie vlastných domén - SEKUNDÁRNY FILTER
+## 5. Výstupná štruktúra
 
-Tikety s automatickými notifikáciami z vlastného e-shopu (napr. "Objednávka bola expedovaná") sú **PRESKOČENÉ**.
-
-```python
-# Domény na ignorovanie
-IGNORED_DOMAINS = ['plotbase.sk', 'plotbase.cz']
-
-# Ak userid alebo author_name obsahuje tieto domény -> skip
-```
-
----
-
-## 3. Rozhodovacia logika (is_human_interaction)
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         ROZHODOVACÍ STROM                                   │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  1. Je group.type v {3, 4, 5, 7}?                                           │
-│     │                                                                       │
-│     ├── NIE (I, T, G, R, ...) → PRESKOČIŤ skupinu ❌                         │
-│     │   (Systémové notifikácie - SLA, transfer, tagy, resolve)              │
-│     │                                                                       │
-│     └── ÁNO → Pokračuj na krok 2                                            │
-│                                                                             │
-│  2. Je odosielateľ z vlastnej domény (plotbase.sk/cz)?                      │
-│     │                                                                       │
-│     ├── ÁNO → PRESKOČIŤ správu ❌                                            │
-│     │   (Automatická notifikácia z e-shopu)                                 │
-│     │                                                                       │
-│     └── NIE → Pokračuj na krok 3                                            │
-│                                                                             │
-│  3. Má správa neprázdny obsah?                                              │
-│     │                                                                       │
-│     ├── NIE → PRESKOČIŤ správu ❌                                            │
-│     │                                                                       │
-│     └── ÁNO → IMPORTOVAŤ TIKET ✅                                            │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Kód v `src/utils.py`:**
-```python
-def is_human_interaction(message_groups, agents_map):
-    """
-    Determines if the ticket contains human communication.
-    Uses MESSAGE GROUP TYPE as the primary filter.
-    """
-    COMMUNICATION_TYPES = {'3', '4', '5', '7'}
-    IGNORED_DOMAINS = ['plotbase.sk', 'plotbase.cz']
-
-    for group in message_groups:
-        # PRIMARY FILTER: Check group type
-        group_type = str(group.get('type', ''))
-        if group_type not in COMMUNICATION_TYPES:
-            continue
-        
-        # SECONDARY FILTER: Check for own-domain notifications
-        for msg in group.get('messages', []):
-            userid = str(msg.get('userid', ''))
-            author_name = msg.get('user_full_name', '') or ''
-            
-            # Skip own domain emails
-            if any(domain in userid.lower() for domain in IGNORED_DOMAINS):
-                continue
-            if any(domain in author_name.lower() for domain in IGNORED_DOMAINS):
-                continue
-            
-            # Check for actual content
-            if msg.get('message', '').strip():
-                return True
-
-    return False
-```
+| Stĺpec | Typ | Popis |
+|--------|-----|-------|
+| Ticket_ID | string | ID tiketu |
+| Link | string | URL na tiket |
+| Agent | string | Meno agenta |
+| Date_Changed | datetime | Posledná zmena |
+| Date_Created | datetime | Vytvorenie |
+| Transcript | string | Prepis konverzácie |
+| AI_Processed | boolean | FALSE = čaká na analýzu |
+| Is_Critical | boolean | Kritický problém |
+| QA_Score | number | 0-100 |
+| QA_Data | JSON | Detailné hodnotenie |
+| Alert_Reason | string | Dôvod alertu |
 
 ---
 
-## 4. Príklady
+## 6. Error handling
 
-### Príklad A: Tiket sa IMPORTUJE ✅ (zákazník + agent)
-```
-Tiket ID: 3jor4368
-Skupiny správ:
-  - Type 7: Zákazník napísal email
-  - Type 4: Agent odpovedal
-
-→ Type 7 je v COMMUNICATION_TYPES ✅
-→ Type 4 je v COMMUNICATION_TYPES ✅
-→ IMPORTUJE SA
-```
-
-### Príklad B: Tiket sa IMPORTUJE ✅ (len zákazník)
-```
-Tiket ID: reklamacia123
-Skupiny správ:
-  - Type 3: Zákazník napísal reklamáciu
-
-→ Type 3 je v COMMUNICATION_TYPES ✅
-→ IMPORTUJE SA
-```
-
-### Príklad C: Tiket sa NEIMPORTUJE ❌ (len systémové)
-```
-Tiket ID: f7jrt2t0
-Skupiny správ:
-  - Type I: SLA notifikácia
-  - Type T: Transfer (viackrát)
-  - Type G: Pridanie značiek
-
-→ Žiadny type nie je v COMMUNICATION_TYPES ❌
-→ NEIMPORTUJE SA (len automatické notifikácie)
-```
-
-### Príklad D: Tiket sa NEIMPORTUJE ❌ (vlastná doména)
-```
-Tiket ID: shop-notification
-Skupiny správ:
-  - Type 3: Email od plotbase@plotbase.sk
-
-→ Type 3 je v COMMUNICATION_TYPES ✅
-→ ALE autor je z IGNORED_DOMAINS ❌
-→ NEIMPORTUJE SA (automatická notifikácia z e-shopu)
-```
-
----
-
-## 5. Bug Fix History
-
-### 2025-12-05: Oprava filtrovania systémových notifikácií
-
-**Problém:** Tiket `f7jrt2t0` bol nesprávne importovaný, hoci obsahoval len systémové notifikácie (SLA, transfer, tagy).
-
-**Príčina:** Pôvodná funkcia `is_human_interaction()` kontrolovala len **obsah správy** a **userid**, ale NIE **group type**. Systémové správy s type=I, T, G mali `userid: system00`, ale funkcia to nesprávne vyhodnotila.
-
-**Riešenie:** Nová logika používa **group.type** ako primárny filter:
-- Len typy 3, 4, 5, 7 sú považované za komunikáciu
-- Všetky ostatné typy (I, T, G, R, ...) sú automaticky preskočené
-
----
-
-## 6. API Endpoints
-
-```
-GET /api/v3/tickets
-  - Parametre: _page, _perPage, _sortField, _sortDir
-  - Vracia zoznam tiketov
-
-GET /api/v3/tickets/{id}/messages
-  - Vracia skupiny správ pre konkrétny tiket
-  - Každá skupina má "type" pole (3, 4, 5, 7, I, T, G, R, ...)
-```
+| Chyba | Správanie |
+|-------|-----------|
+| API timeout | Retry s exponential backoff |
+| Invalid JSON | Skip tiket |
+| Sheet not found | Vytvorí automaticky |
+| Rate limit | Delay medzi stránkami |
 
 ---
 
 ## 7. Súvisiace súbory
 
-- `src/utils.py` - Funkcia `is_human_interaction()` (hlavná logika filtrovania)
-- `src/backend.py` - `ETLService.run_etl_cycle()` (volá is_human_interaction)
-- `pages/Settings.py` - UI pre manuálne spustenie ETL
+| Súbor | Funkcia |
+|-------|---------|
+| `src/backend.py` | `ETLService.run_etl_cycle()` |
+| `src/sheets_manager.py` | `upsert_raw_tickets()` |
+| `src/api.py` | `get_liveagent_tickets()`, `get_ticket_messages()` |
+| `src/utils.py` | `is_human_interaction()`, `process_transcript()` |
 
 ---
 
-*Posledná aktualizácia: 2025-12-05 (fix: group type filtering)*
+*Posledná aktualizácia: 2024-12-06*

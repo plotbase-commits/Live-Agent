@@ -8,208 +8,180 @@ description: Prehľad architektúry a všetkých modulov projektu LiveAgent QA D
 
 LiveAgent QA Dashboard je Streamlit aplikácia na automatickú kontrolu kvality zákazníckej podpory.
 
-## Komponenty
+## Dátový tok
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     STREAMLIT UI                            │
-├─────────────────────────────────────────────────────────────┤
-│  Home.py (Dashboard)    │    pages/Settings.py (Admin)     │
-└─────────────┬───────────┴───────────────┬───────────────────┘
-              │                           │
-              ▼                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     BACKEND SERVICES                        │
-├──────────────────┬──────────────────┬──────────────────────┤
-│   ETLService     │  AnalysisService │  ArchivingService    │
-│   (backend.py)   │  (backend.py)    │  (backend.py)        │
-└────────┬─────────┴────────┬─────────┴──────────┬───────────┘
-         │                  │                    │
-         ▼                  ▼                    ▼
-┌────────────────┐  ┌───────────────┐  ┌─────────────────────┐
-│  LiveAgent API │  │   Gemini AI   │  │   Google Sheets     │
-│   (api.py)     │  │ (ai_service)  │  │  (sheets_manager)   │
-└────────────────┘  └───────────────┘  └─────────────────────┘
-         │                  │
-         ▼                  ▼
-┌────────────────────────────────────┐
-│         SUPPORT SERVICES           │
-├──────────────────┬─────────────────┤
-│   Scheduler      │   Email Alerts  │
-│  (scheduler.py)  │  (alerting.py)  │
-└──────────────────┴─────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          LIVEAGENT API                                      │
+└───────────────────────────────┬─────────────────────────────────────────────┘
+                                │ ETL (každú hodinu o :30)
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          RAW_TICKETS (len aktuálny mesiac)                  │
+│  Kľúč: (Ticket_ID, Agent) - upsert logika                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Ticket_ID │ Agent │ Date_Changed │ Transcript │ AI_Processed │ QA_Data ... │
+└───────────────────────────────┬─────────────────────────────────────────────┘
+                                │ AI Analysis (každú hodinu o :35)
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          AI ANALYSIS                                        │
+│  1. Nájde AI_Processed = FALSE                                             │
+│  2. Analyzuje cez Gemini (QA + Alert prompt)                               │
+│  3. Update: QA_Score, QA_Data, Is_Critical                                 │
+│  4. Ak Is_Critical → Email alert                                           │
+└───────────────────────────────┬─────────────────────────────────────────────┘
+                                │
+          ┌─────────────────────┼─────────────────────┐
+          │                     │                     │
+          ▼                     ▼                     ▼
+┌─────────────────┐   ┌─────────────────┐   ┌─────────────────────┐
+│   Home.py       │   │  Daily_Stats    │   │  Archive_YYYY-MM    │
+│  (Dashboard)    │   │ (Denné súhrny)  │   │ (Mesačné archívy)   │
+│                 │   │                 │   │                     │
+│ Filter: mesiac  │   │ Agregované dáta │   │ Staré tikety        │
+│ Sort: abeceda   │   │ per agent/day   │   │ >12 mesiacov=zmazať │
+└─────────────────┘   └─────────────────┘   └─────────────────────┘
+```
+
+---
+
+## Kľúčové koncepty
+
+### 1. Upsert logika (ETL)
+
+```python
+Kľúč = (Ticket_ID, Agent)
+
+Ak existuje riadok s rovnakým kľúčom:
+    → UPDATE (prepíše celý riadok, AI_Processed = FALSE)
+Inak:
+    → INSERT (nový riadok)
+```
+
+**Prečo (Ticket_ID, Agent)?**
+- Jeden tiket môže mať viacerých agentov (preradenie)
+- Každý agent dostane vlastné hodnotenie
+- Ak sa agent vráti na tiket → prepíše sa jeho staré hodnotenie
+
+### 2. AI Re-evaluation
+
+```
+ETL upsert → AI_Processed = FALSE
+AI Analysis → Analyzuje len FALSE → QA_Score, AI_Processed = TRUE
+
+Výsledok: Každá zmena tiketu = nové hodnotenie
+```
+
+### 3. Mesačná archivácia
+
+```
+Raw_Tickets: len Date_Changed = aktuálny mesiac
+Archive_2024-12: tikety z decembra
+Archive_2024-11: tikety z novembra
+...
+Archive staršie ako 12 mesiacov = AUTO DELETE
+```
+
+### 4. Agent Evaluation (Dashboard)
+
+```
+critical_ratio = critical_count / tickets
+
+Ikona:
+- 🚨 ak critical_ratio > 10%
+- ⚠️ ak critical_ratio > 5%
+- ✅ ak score >= 80%
+- ⚠️ ak score >= 60%
+- 🔴 ak score < 60%
+
+Metriky:
+- avg_score = total_score / analyzed_tickets (váhovaný)
+- Zobrazenie: "Analyzed: 15/18 | Critical: 2 (11%)"
 ```
 
 ---
 
 ## Moduly
 
-### 1. Home.py
-**Hlavná stránka - QA Dashboard**
+### `src/backend.py`
 
-- Zobrazuje karty agentov s QA skóre
-- Agregované metriky (počet tiketov, kritické problémy)
-- Auto-start scheduler pri načítaní
+| Trieda | Funkcie |
+|--------|---------|
+| `ETLService` | `run_etl_cycle()` - stiahne tikety, upsert do Raw_Tickets |
+| `AnalysisService` | `run_analysis_cycle()` - AI analýza, emaily |
+| `ArchivingService` | `run_archiving()` - mesačná archivácia |
 
-```python
-@st.cache_resource
-def init_scheduler():
-    # Inicializuje scheduler s ETL a Analysis jobmi
-```
+### `src/sheets_manager.py`
 
-### 2. pages/Settings.py
-**Admin nastavenia**
+| Metóda | Popis |
+|--------|-------|
+| `upsert_raw_tickets()` | Batch upsert podľa (Ticket_ID, Agent) |
+| `append_raw_tickets()` | DEPRECATED - volá upsert |
+| `rewrite_raw_tickets()` | Prepíše celý sheet |
+| `archive_rows_to_month()` | Pridá riadky do Archive_* sheetu |
 
-- Taby: Manual Controls, Scheduler, Configuration
-- Real-time status refresh (@st.fragment)
-- Job logs (najnovšie hore)
+### `src/utils.py`
 
-### 3. src/backend.py
-**Hlavné služby**
+| Funkcia | Popis |
+|---------|-------|
+| `is_human_interaction()` | Filtruje systémové správy (SYSTEM_SENDERS) |
+| `process_transcript()` | Konvertuje správy na čitateľný text |
+| `get_agents()` | Mapovanie agent_id → meno |
 
-```python
-class ETLService:
-    def run_etl_cycle(self):
-        # 1. Fetch tickets from LiveAgent
-        # 2. Filter non-human (SYSTEM_SENDERS)
-        # 3. Process transcript
-        # 4. Save to Raw_Tickets
+### `src/alerting.py`
 
-class AnalysisService:
-    def run_analysis_cycle(self):
-        # 1. Get unprocessed tickets
-        # 2. Call AI (QA + Alert prompts)
-        # 3. Update sheet
-        # 4. Send email alerts
+| Funkcia | Popis |
+|---------|-------|
+| `send_alert()` | HTML email s **bold** a *italic* podporou |
 
-class ArchivingService:
-    def run_archiving(self):
-        # Move old tickets to Archive_YYYY-MM
-```
+### `src/scheduler.py`
 
-### 4. src/utils.py
-**Pomocné funkcie**
-
-```python
-def is_human_interaction(messages, agents_map):
-    """
-    Filtruje tikety bez ľudskej interakcie.
-    
-    Kontroluje:
-    1. Message group type (3,4,5,7 = komunikácia)
-    2. From: header vs SYSTEM_SENDERS
-    3. Reply-to header pre no-reply vzory
-    """
-    SYSTEM_SENDERS = [
-        # Vlastné domény
-        'plotbase.sk', 'plotbase.cz', ...
-        # Platobné brány
-        'payu.com', 'gopay.cz', 'stripe.com', ...
-        # Dopravcovia
-        'dhl.com', 'dpd.sk', 'packeta.com', ...
-        # Partneri
-        'justprint.sk',
-        # No-reply vzory
-        'no-reply@', 'noreply@', ...
-    ]
-
-def process_transcript(messages, agents_map, users_map):
-    """Konvertuje API správy na čitateľný transcript."""
-
-def get_agents(api_key):
-    """Vráti mapu agent_id → agent_name (s _perPage=100)."""
-```
-
-### 5. src/api.py
-**LiveAgent API**
-
-```python
-def get_liveagent_tickets(api_key, page, per_page):
-    """Fetch tickets with retry logic."""
-
-def get_ticket_messages(api_key, ticket_id):
-    """Fetch messages for a ticket."""
-```
-
-### 6. src/ai_service.py
-**Gemini AI**
-
-```python
-class AIService:
-    def analyze_qa(self, transcript, qa_prompt):
-        """Returns QA JSON with criteria scores."""
-    
-    def analyze_alert(self, transcript, alert_prompt):
-        """Returns {is_critical, reason}."""
-```
-
-### 7. src/alerting.py
-**Email notifikácie**
-
-```python
-class EmailService:
-    def send_alert(self, recipients, subject, body):
-        """
-        Odošle HTML email.
-        Podporuje **bold** a *italic* formátovanie.
-        """
-```
-
-### 8. src/scheduler.py
-**APScheduler**
-
-```python
-class SchedulerService:
-    def add_etl_job(self, func):
-        # Mon-Fri, 7:30-18:30, every hour at :30
-    
-    def add_analysis_job(self, func):
-        # Mon-Fri, 7:35-18:35, every hour at :35
-```
-
-### 9. src/job_status.py
-**Status tracking**
-
-```python
-def set_status(job_name, status, progress, message):
-    """Zapíše stav do job_status.json"""
-
-def add_log(message):
-    """Pridá log do job_logs.txt (max 100 riadkov)"""
-```
+| Job | Čas |
+|-----|-----|
+| ETL | Po-Pi, 7:30-18:30, každú hodinu o :30 |
+| Analysis | Po-Pi, 7:35-18:35, každú hodinu o :35 |
 
 ---
 
-## Dátový tok
+## Konfigurácia
 
-### ETL Cycle
-```
-LiveAgent API → get_liveagent_tickets() → filter is_human_interaction()
-                                        → process_transcript()
-                                        → SheetSyncManager.append_raw_tickets()
-```
+### Súbory
 
-### Analysis Cycle
-```
-Raw_Tickets → AIService.analyze_qa() → update QA_Score, QA_Data
-            → AIService.analyze_alert() → update Is_Critical, Alert_Reason
-            → if critical: EmailService.send_alert()
-```
-
----
-
-## Konfiguračné súbory
-
-| Súbor | Účel |
-|-------|------|
-| `.env` | API kľúče, credentials |
+| Súbor | Obsah |
+|-------|-------|
+| `.env` | API kľúče (LIVEAGENT_API_KEY, atď.) |
 | `prompts.json` | QA a Alert prompty |
 | `email_config.json` | Email recipients, templates |
 | `credentials.json` | Google Service Account |
 
+### Premenné prostredia
+
+```env
+LIVEAGENT_API_KEY=...
+LIVEAGENT_API_URL=https://your-instance.ladesk.com/api/v3
+LIVEAGENT_AGENT_URL=https://your-instance.ladesk.com/agent
+GOOGLE_AI_API_KEY=...
+GMAIL_USER=...
+GMAIL_APP_PASSWORD=...
+```
+
 ---
 
-## Časté úlohy
+## Workflows
+
+| Príkaz | Súbor | Popis |
+|--------|-------|-------|
+| `/architecture` | architecture.md | Tento dokument |
+| `/ticket-sync-logic` | ticket-sync-logic.md | Filtrovanie tiketov |
+| `/ai-prompts` | ai-prompts.md | QA a Alert prompt dokumentácia |
+| `/daily-stats-aggregation` | daily-stats-aggregation.md | Denné štatistiky |
+| `/monthly-archiving` | monthly-archiving.md | Mesačná archivácia |
+| `/restore-context` | restore-context.md | Obnovenie kontextu session |
+
+---
+
+## Časté operácie
 
 ### Pridať novú ignorovanú doménu
 ```python
@@ -217,22 +189,40 @@ Raw_Tickets → AIService.analyze_qa() → update QA_Score, QA_Data
 'nova-domena.sk',
 ```
 
-### Upraviť AI prompt
-1. Edituj `prompts.json` alebo cez Settings → Configuration
-2. Pushni zmeny do Git
+### Spustiť ETL manuálne
+Settings → Manual Controls → Run ETL
+
+### Archivovať staré tikety
+Settings → Manual Controls → Run Archiving
 
 ### Debug tiket
-```python
+```bash
 python3 -c "
+from src.api import get_ticket_messages
 from src.config import VAS_API_KLUC
-import requests
-ticket_id = 'abc123'
-r = requests.get(f'https://plotbase.ladesk.com/api/v3/tickets/{ticket_id}', 
-                 headers={'apikey': VAS_API_KLUC})
-print(r.json())
+msgs = get_ticket_messages(VAS_API_KLUC, 'ticket_id_here')
+print(msgs)
 "
 ```
 
 ---
 
-*Posledná aktualizácia: 2024-12-05*
+## Sheets štruktúra
+
+### Raw_Tickets
+```
+Ticket_ID | Link | Agent | Date_Changed | Date_Created | Transcript |
+AI_Processed | Is_Critical | QA_Score | QA_Data | Alert_Reason
+```
+
+### Daily_Stats
+```
+Date | Agent | Avg_Score | Critical_Count | Avg_Empathy | Avg_Expertise | Verbal_Summary
+```
+
+### Archive_YYYY-MM
+Rovnaká štruktúra ako Raw_Tickets
+
+---
+
+*Posledná aktualizácia: 2024-12-06*
