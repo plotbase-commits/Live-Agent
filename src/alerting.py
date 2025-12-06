@@ -1,6 +1,7 @@
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import formatdate
 import streamlit as st
 import re
 from src.config import get_config_value, DEFAULT_GMAIL_USER, DEFAULT_GMAIL_PASSWORD
@@ -71,6 +72,7 @@ class EmailService:
             msg['From'] = self.user
             msg['To'] = ", ".join(recipients)
             msg['Subject'] = f"[QA ALERT] {subject}"
+            msg['Date'] = formatdate(localtime=True)
 
             # Plain text fallback
             msg.attach(MIMEText(body, 'plain'))
