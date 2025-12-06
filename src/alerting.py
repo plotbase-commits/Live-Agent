@@ -15,8 +15,17 @@ class EmailService:
     def _convert_to_html(self, text):
         """
         Convert plain text with markdown-like formatting to HTML.
-        Supports: **bold**, *italic*, newlines
+        Supports: **bold**, *italic*, URLs, newlines
         """
+        # First, find and protect URLs before escaping
+        url_pattern = r'(https?://[^\s]+)'
+        urls = re.findall(url_pattern, text)
+        url_placeholders = {}
+        for i, url in enumerate(urls):
+            placeholder = f"__URL_PLACEHOLDER_{i}__"
+            url_placeholders[placeholder] = url
+            text = text.replace(url, placeholder, 1)
+        
         # Escape HTML special chars
         text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         
@@ -25,6 +34,11 @@ class EmailService:
         
         # Convert *italic* to <i>italic</i>
         text = re.sub(r'\*(.+?)\*', r'<i>\1</i>', text)
+        
+        # Restore URLs as clickable links
+        for placeholder, url in url_placeholders.items():
+            clickable_link = f'<a href="{url}" style="color: #1a73e8;">{url}</a>'
+            text = text.replace(placeholder, clickable_link)
         
         # Convert newlines to <br>
         text = text.replace('\n', '<br>')
